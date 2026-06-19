@@ -39,25 +39,54 @@ class Database:
                     handled_at   TEXT
                 );
             """)
-            # যদি পুরনো DB-তে last_bonus কলাম না থাকে, যুক্ত করে দেয়
             cols = [row["name"] for row in conn.execute("PRAGMA table_info(users)")]
             if "last_bonus" not in cols:
                 conn.execute("ALTER TABLE users ADD COLUMN last_bonus TEXT")
 
     def _init_task_db(self):
-        """টাস্ক স্ক্রিনশট সাবমিশনের জন্য নতুন টেবিল তৈরি করে"""
+        """টাস্ক এবং সাবমিশনের জন্য টেবিল তৈরি করে"""
         with self._conn() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS tasks (
+                    task_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title        TEXT,
+                    desc         TEXT,
+                    reward       REAL,
+                    url          TEXT,
+                    created_at   TEXT
+                );
+            """)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS task_submissions (
                     id           INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id      INTEGER,
-                    task_id      TEXT,
+                    task_id      INTEGER,
                     photo_file_id TEXT,
                     status       TEXT DEFAULT 'pending',
                     reward       REAL,
                     submitted_at TEXT
                 );
             """)
+
+    def add_new_task(self, title, desc, reward, url):
+        """চ্যানেল থেকে নতুন টাস্ক যোগ করার ফাংশন"""
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO tasks (title, desc, reward, url, created_at) VALUES (?, ?, ?, ?, ?)",
+                (title, desc, reward, url, datetime.now().isoformat())
+            )
+
+    def get_all_tasks(self):
+        """সবগুলো একটিভ টাস্ক লিস্ট নিয়ে আসার ফাংশন"""
+        with self._conn() as conn:
+            rows = conn.execute("SELECT * FROM tasks ORDER BY task_id DESC").fetchall()
+            return [dict(r) for r in rows]
+
+    def get_task(self, task_id):
+        """নির্দিষ্ট একটি টাস্কের ডিটেইলস জানা"""
+        with self._conn() as conn:
+            row = conn.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+            return dict(row) if row else None
 
     def register_user(self, user_id, name, username, referrer_id=None):
         with self._conn() as conn:
@@ -108,10 +137,7 @@ class Database:
             ).fetchone()["balance"]
             return True, new_balance
 
-    # ---------------- 🎯 Task Submission System ----------------
-
     def has_pending_task(self, user_id, task_id):
-        """ইউজারের কোনো নির্দিষ্ট টাস্ক অলরেডি পেন্ডিং আছে কিনা চেক করে।"""
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT id FROM task_submissions WHERE user_id=? AND task_id=? AND status='pending'",
@@ -120,9 +146,7 @@ class Database:
             return row is not None
 
     def submit_task_proof(self, user_id, task_id, photo_file_id, reward):
-        """ইউজারের স্ক্রিনশট ডাটাবেজে পেন্ডিং হিসেবে সেভ করে।"""
         with self._conn() as conn:
-            # আগে থেকেই কমপ্লিট বা পেন্ডিং আছে কিনা চেক
             already_done = conn.execute(
                 "SELECT status FROM task_submissions WHERE user_id=? AND task_id=?", 
                 (user_id, task_id)
@@ -144,28 +168,22 @@ class Database:
             return dict(row) if row else None
 
     def approve_task_submission(self, sub_id):
-        """টাস্ক এপ্রুভ করে ইউজারের অ্যাকাউন্টে টাকা যোগ করে।"""
         with self._conn() as conn:
             sub = conn.execute("SELECT * FROM task_submissions WHERE id=? AND status='pending'", (sub_id,)).fetchone()
             if not sub:
                 return False
             
-            # স্ট্যাটাস আপডেট
             conn.execute("UPDATE task_submissions SET status='approved' WHERE id=?", (sub_id,))
-            # ব্যালেন্স যোগ
             conn.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (sub["reward"], sub["user_id"]))
             return sub["user_id"], sub["reward"], sub["task_id"]
 
     def reject_task_submission(self, sub_id):
-        """টাস্ক রিজেক্ট করে দেয়।"""
         with self._conn() as conn:
             sub = conn.execute("SELECT * FROM task_submissions WHERE id=? AND status='pending'", (sub_id,)).fetchone()
             if not sub:
                 return False
             conn.execute("UPDATE task_submissions SET status='rejected' WHERE id=?", (sub_id,))
             return sub["user_id"], sub["task_id"]
-
-    # ---------------- 💵 Withdrawal ----------------
 
     def has_pending_withdrawal(self, user_id):
         with self._conn() as conn:
@@ -189,7 +207,6 @@ class Database:
             if user["balance"] < amount:
                 return False, "insufficient_balance", None
 
-            # ব্যালেন্স থেকে কেটে নেয়া (reject হলে ফেরত দেওয়া হবে)
             conn.execute("UPDATE users SET balance = balance - ? WHERE user_id=?", (amount, user_id))
             cur = conn.execute(
                 "INSERT INTO withdrawals (user_id, amount, method, account_no, status, requested_at) "
@@ -202,13 +219,6 @@ class Database:
         with self._conn() as conn:
             row = conn.execute("SELECT * FROM withdrawals WHERE id=?", (withdrawal_id,)).fetchone()
             return dict(row) if row else None
-
-    def get_pending_withdrawals(self):
-        with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM withdrawals WHERE status='pending' ORDER BY requested_at ASC"
-            ).fetchall()
-            return [dict(r) for r in rows]
 
     def approve_withdrawal(self, withdrawal_id):
         with self._conn() as conn:
@@ -235,11 +245,3 @@ class Database:
                 (datetime.now().isoformat(), withdrawal_id)
             )
             return True
-
-    def get_user_withdrawals(self, user_id, limit=5):
-        with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM withdrawals WHERE user_id=? ORDER BY requested_at DESC LIMIT ?",
-                (user_id, limit)
-            ).fetchall()
-            return [dict(r) for r in rows]
