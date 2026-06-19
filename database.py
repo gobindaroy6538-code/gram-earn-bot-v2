@@ -8,6 +8,7 @@ class Database:
     def __init__(self, db_path="bot.db"):
         self.db_path = db_path
         self._init_db()
+        self._init_task_db()
 
     def _conn(self):
         conn = sqlite3.connect(self.db_path)
@@ -43,6 +44,21 @@ class Database:
             if "last_bonus" not in cols:
                 conn.execute("ALTER TABLE users ADD COLUMN last_bonus TEXT")
 
+    def _init_task_db(self):
+        """টাস্ক স্ক্রিনশট সাবমিশনের জন্য নতুন টেবিল তৈরি করে"""
+        with self._conn() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS task_submissions (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id      INTEGER,
+                    task_id      TEXT,
+                    photo_file_id TEXT,
+                    status       TEXT DEFAULT 'pending',
+                    reward       REAL,
+                    submitted_at TEXT
+                );
+            """)
+
     def register_user(self, user_id, name, username, referrer_id=None):
         with self._conn() as conn:
             existing = conn.execute("SELECT user_id FROM users WHERE user_id=?", (user_id,)).fetchone()
@@ -69,12 +85,6 @@ class Database:
             return row["cnt"]
 
     def claim_daily_bonus(self, user_id, amount):
-        """
-        Daily bonus claim করার চেষ্টা করে।
-        Returns: (success: bool, info)
-            - success=True হলে info = নতুন balance (float)
-            - success=False হলে info = পরবর্তী claim পর্যন্ত বাকি সময় (timedelta)
-        """
         with self._conn() as conn:
             row = conn.execute("SELECT last_bonus FROM users WHERE user_id=?", (user_id,)).fetchone()
             if row is None:
@@ -98,7 +108,64 @@ class Database:
             ).fetchone()["balance"]
             return True, new_balance
 
-    # ---------------- Withdrawal ----------------
+    # ---------------- 🎯 Task Submission System ----------------
+
+    def has_pending_task(self, user_id, task_id):
+        """ইউজারের কোনো নির্দিষ্ট টাস্ক অলরেডি পেন্ডিং আছে কিনা চেক করে।"""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT id FROM task_submissions WHERE user_id=? AND task_id=? AND status='pending'",
+                (user_id, task_id)
+            ).fetchone()
+            return row is not None
+
+    def submit_task_proof(self, user_id, task_id, photo_file_id, reward):
+        """ইউজারের স্ক্রিনশট ডাটাবেজে পেন্ডিং হিসেবে সেভ করে।"""
+        with self._conn() as conn:
+            # আগে থেকেই কমপ্লিট বা পেন্ডিং আছে কিনা চেক
+            already_done = conn.execute(
+                "SELECT status FROM task_submissions WHERE user_id=? AND task_id=?", 
+                (user_id, task_id)
+            ).fetchone()
+            
+            if already_done and already_done["status"] in ["pending", "approved"]:
+                return False, already_done["status"]
+
+            cur = conn.execute(
+                "INSERT INTO task_submissions (user_id, task_id, photo_file_id, status, reward, submitted_at) "
+                "VALUES (?, ?, ?, 'pending', ?, ?)",
+                (user_id, task_id, photo_file_id, reward, datetime.now().isoformat())
+            )
+            return True, cur.lastrowid
+
+    def get_submission(self, sub_id):
+        with self._conn() as conn:
+            row = conn.execute("SELECT * FROM task_submissions WHERE id=?", (sub_id,)).fetchone()
+            return dict(row) if row else None
+
+    def approve_task_submission(self, sub_id):
+        """টাস্ক এপ্রুভ করে ইউজারের অ্যাকাউন্টে টাকা যোগ করে।"""
+        with self._conn() as conn:
+            sub = conn.execute("SELECT * FROM task_submissions WHERE id=? AND status='pending'", (sub_id,)).fetchone()
+            if not sub:
+                return False
+            
+            # স্ট্যাটাস আপডেট
+            conn.execute("UPDATE task_submissions SET status='approved' WHERE id=?", (sub_id,))
+            # ব্যালেন্স যোগ
+            conn.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (sub["reward"], sub["user_id"]))
+            return sub["user_id"], sub["reward"], sub["task_id"]
+
+    def reject_task_submission(self, sub_id):
+        """টাস্ক রিজেক্ট করে দেয়।"""
+        with self._conn() as conn:
+            sub = conn.execute("SELECT * FROM task_submissions WHERE id=? AND status='pending'", (sub_id,)).fetchone()
+            if not sub:
+                return False
+            conn.execute("UPDATE task_submissions SET status='rejected' WHERE id=?", (sub_id,))
+            return sub["user_id"], sub["task_id"]
+
+    # ---------------- 💵 Withdrawal ----------------
 
     def has_pending_withdrawal(self, user_id):
         with self._conn() as conn:
@@ -108,12 +175,6 @@ class Database:
             return row is not None
 
     def request_withdrawal(self, user_id, amount, method, account_no, min_amount):
-        """
-        উইথড্র রিকোয়েস্ট তৈরি করে। ব্যালেন্স যাচাই করে সাথে সাথে আটকে রাখে (deduct করে)
-        যাতে ইউজার একসাথে একাধিক রিকোয়েস্ট করে ব্যালেন্সের বেশি তুলে নিতে না পারে।
-
-        Returns: (success: bool, message: str, withdrawal_id or None)
-        """
         with self._conn() as conn:
             user = conn.execute("SELECT balance FROM users WHERE user_id=?", (user_id,)).fetchone()
             if user is None:
@@ -150,7 +211,6 @@ class Database:
             return [dict(r) for r in rows]
 
     def approve_withdrawal(self, withdrawal_id):
-        """এডমিন এপ্রুভ করলে স্ট্যাটাস আপডেট হয় (ব্যালেন্স আগেই কাটা হয়েছিল)।"""
         with self._conn() as conn:
             row = conn.execute("SELECT status FROM withdrawals WHERE id=?", (withdrawal_id,)).fetchone()
             if row is None or row["status"] != "pending":
@@ -162,7 +222,6 @@ class Database:
             return True
 
     def reject_withdrawal(self, withdrawal_id):
-        """এডমিন রিজেক্ট করলে টাকা ইউজারের ব্যালেন্সে ফেরত যায়।"""
         with self._conn() as conn:
             row = conn.execute("SELECT * FROM withdrawals WHERE id=?", (withdrawal_id,)).fetchone()
             if row is None or row["status"] != "pending":
