@@ -17,7 +17,13 @@ DAILY_BONUS = 2
 MIN_WITHDRAW = 20
 ADMIN_ID = 8012544346
 
-CHANNEL_ID = -1004375418813
+# --- FORCE JOIN CONFIGURATION ---
+FORCE_CHANNELS = [
+    -1004462605202,  # আপনার নতুন চ্যানেল আইডি
+]
+CHANNEL_LINK = "https://t.me/gramearnbotV2"  # চ্যানেলের লিংক
+
+CHANNEL_ID = FORCE_CHANNELS[0] 
 WITHDRAW_LOG_ID = CHANNEL_ID  
 
 WITHDRAW_METHODS = ["bKash", "Nagad", "Rocket"]
@@ -26,7 +32,7 @@ WITHDRAW_METHODS = ["bKash", "Nagad", "Rocket"]
 ASK_METHOD, ASK_NUMBER, ASK_AMOUNT = range(3)
 ASK_TASK_PROOF = 4
 
-# নতুন এডমিন প্যানেল স্টেট
+# এডমিন প্যানেল স্টেট
 ASK_ADMIN_CHECK_USER = 5
 ASK_ADMIN_CHANGE_BAL_ID = 6
 ASK_ADMIN_CHANGE_BAL_AMT = 7
@@ -34,6 +40,19 @@ ASK_ADMIN_BROADCAST = 8
 ASK_ADMIN_ADD_TASK_DATA = 9
 
 db = Database()
+
+
+async def is_user_joined_all(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """ইউজার চ্যানেলে জয়েন করেছে কিনা তা চেক করে"""
+    for channel in FORCE_CHANNELS:
+        try:
+            member = await context.bot.get_chat_member(chat_id=channel, user_id=user_id)
+            if member.status in ["left", "kicked"]:
+                return False
+        except Exception as e:
+            logger.error(f"Force Join Check Error for channel {channel}: {e}")
+            continue
+    return True
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -53,11 +72,53 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
+    # জয়েন চেক করা হচ্ছে
+    if not await is_user_joined_all(user.id, context):
+        await show_force_join_msg(update, context)
+        return
+
     await show_main_menu(update, context)
+
+
+async def show_force_join_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ইউজার জয়েন না করলে এই মেসেজটি দেখাবে"""
+    text = (
+        "⚠️ *আমাদের অফিসিয়াল চ্যানেলে জয়েন করুন!*\n\n"
+        "বটের মূল মেনু দেখতে এবং টাকা আয় করতে নিচের চ্যানেলে জয়েন করা বাধ্যতামূলক। "
+        "জয়েন করার পর নিচে '✅ জয়েন করেছি' বাটনে ক্লিক করুন।"
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("📢 চ্যানেলে জয়েন করুন", url=CHANNEL_LINK)],
+        [InlineKeyboardButton("✅ জয়েন করেছি", callback_data="check_joined")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+
+
+async def check_joined_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    
+    if await is_user_joined_all(user_id, context):
+        await query.answer("🎉 ধন্যবাদ! আপনি সফলভাবে জয়েন করেছেন।", show_alert=True)
+        await show_main_menu(update, context)
+    else:
+        await query.answer("❌ আপনি এখনো চ্যানেলে জয়েন করেননি! দয়া করে জয়েন করুন।", show_alert=True)
 
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    
+    # মেনু খোলার সময়ও চেক করবে ইউজার চ্যানেল লিভ নিয়েছে কিনা
+    if not await is_user_joined_all(user_id, context):
+        await show_force_join_msg(update, context)
+        return
+
     user = db.get_user(user_id)
     balance = user["balance"] if user else 0
 
@@ -127,7 +188,7 @@ async def daily_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if success:
         text = (
-            f"🎁 *ডেইলি বোনাস পেয়েছেন!*\n\n"
+            f"🎁 *데일리 বোনাস পেয়েছেন!*\n\n"
             f"+{DAILY_BONUS} টাকা যুক্ত হয়েছে।\n"
             f"💰 নতুন ব্যালেন্স: *{info:.2f} টাকা*\n\n"
             f"আবার 24 ঘণ্টা পর ক্লেইম করতে পারবেন।"
@@ -625,7 +686,7 @@ async def adm_broadcast_received(update: Update, context: ContextTypes.DEFAULT_T
     try:
         users = db.get_all_users()
     except AttributeError:
-        await update.message.reply_text("⚠️ ডাটাবেজে `get_all_users()` মেثডটি তৈরি করা নেই।")
+        await update.message.reply_text("⚠️ ডাটাবেজে `get_all_users()` মেথডটি তৈরি করা নেই।")
         return ConversationHandler.END
 
     if not users:
@@ -738,6 +799,7 @@ def main():
     app.add_handler(task_conv)
     app.add_handler(admin_conv)
 
+    app.add_handler(CallbackQueryHandler(check_joined_callback, pattern="^check_joined$")) # ফোর্সবটন হ্যান্ডলার
     app.add_handler(CallbackQueryHandler(show_main_menu, pattern="^menu$"))
     app.add_handler(CallbackQueryHandler(show_balance, pattern="^balance$"))
     app.add_handler(CallbackQueryHandler(show_referral, pattern="^referral$"))
