@@ -17,7 +17,8 @@ class Database:
             balance REAL DEFAULT 0.0,
             referred_by INTEGER,
             joined_date TEXT,
-            last_daily_bonus TEXT
+            last_daily_bonus TEXT,
+            is_banned INTEGER DEFAULT 0
         )
         """)
         cursor.execute("""
@@ -50,6 +51,13 @@ class Database:
         )
         """)
         self.conn.commit()
+
+        # সেফটি চেক: যদি আগে থেকে ডাটাবেজ ফাইল তৈরি থাকে, তবে যেন কলাম মিসিং এরর না আসে
+        try:
+            cursor.execute("SELECT is_banned FROM users LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE users ADD COLUMN is_banned INTEGER DEFAULT 0")
+            self.conn.commit()
 
     # ---------------- USER ----------------
     def register_user(self, user_id, name, username, referrer_id=None):
@@ -114,6 +122,26 @@ class Database:
         )
         self.conn.commit()
         return True, user["balance"] + bonus_amount
+
+    # ---------------- BAN / UNBAN SYSTEM ----------------
+    def is_user_banned(self, user_id):
+        """ইউজার ব্যান কিনা চেক করে"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT is_banned FROM users WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        return row[0] == 1 if row else False
+
+    def ban_user(self, user_id):
+        """ইউজারকে ব্যান করে"""
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE users SET is_banned = 1 WHERE user_id = ?", (user_id,))
+        self.conn.commit()
+
+    def unban_user(self, user_id):
+        """ইউজারকে আনব্যান করে"""
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE users SET is_banned = 0 WHERE user_id = ?", (user_id,))
+        self.conn.commit()
 
     # ---------------- WITHDRAW ----------------
     def request_withdrawal(self, user_id, amount, method, account_no, min_withdraw):
