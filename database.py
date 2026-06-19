@@ -1,247 +1,268 @@
 import sqlite3
 from datetime import datetime, timedelta
 
-BONUS_COOLDOWN_HOURS = 24
-
-
 class Database:
-    def __init__(self, db_path="bot.db"):
-        self.db_path = db_path
-        self._init_db()
-        self._init_task_db()
+    def __init__(self, db_name="bot_database.db"):
+        self.conn = sqlite3.connect(db_name, check_same_thread=False)
+        self.create_tables()
 
-    def _conn(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+    def create_tables(self):
+        cursor = self.conn.cursor()
+        
+        # ১. ইউজার টেবিল
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            name TEXT,
+            username TEXT,
+            balance REAL DEFAULT 0.0,
+            referred_by INTEGER,
+            joined_date TEXT,
+            last_daily_bonus TEXT
+        )
+        """)
+        
+        # ২. উইথড্রাল টেবিল (এখানে PRIMARY KEY id-টিই wd_id হিসেবে কাজ করে)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS withdrawals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            amount REAL,
+            method TEXT,
+            account_no TEXT,
+            status TEXT DEFAULT 'pending'
+        )
+        """)
+        
+        # ৩. টাস্ক টেবিল
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            task_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            desc TEXT,
+            reward REAL,
+            url TEXT
+        )
+        """)
+        
+        # ৪. টাস্ক সাবমিশন (প্রুফ) টেবিল
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS task_submissions (
+            sub_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            task_id INTEGER,
+            photo_id TEXT,
+            reward REAL,
+            status TEXT DEFAULT 'pending'
+        )
+        """)
+        
+        self.conn.commit()
 
-    def _init_db(self):
-        with self._conn() as conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id     INTEGER PRIMARY KEY,
-                    name        TEXT,
-                    username    TEXT,
-                    balance     REAL DEFAULT 0,
-                    referrer_id INTEGER,
-                    joined_date TEXT,
-                    last_bonus  TEXT
-                );
-
-                CREATE TABLE IF NOT EXISTS withdrawals (
-                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id      INTEGER,
-                    amount       REAL,
-                    method       TEXT,
-                    account_no   TEXT,
-                    status       TEXT DEFAULT 'pending',
-                    requested_at TEXT,
-                    handled_at   TEXT
-                );
-            """)
-            cols = [row["name"] for row in conn.execute("PRAGMA table_info(users)")]
-            if "last_bonus" not in cols:
-                conn.execute("ALTER TABLE users ADD COLUMN last_bonus TEXT")
-
-    def _init_task_db(self):
-        """টাস্ক এবং সাবমিশনের জন্য টেবিল তৈরি করে"""
-        with self._conn() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS tasks (
-                    task_id      INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title        TEXT,
-                    desc         TEXT,
-                    reward       REAL,
-                    url          TEXT,
-                    created_at   TEXT
-                );
-            """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS task_submissions (
-                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id      INTEGER,
-                    task_id      INTEGER,
-                    photo_file_id TEXT,
-                    status       TEXT DEFAULT 'pending',
-                    reward       REAL,
-                    submitted_at TEXT
-                );
-            """)
-
-    def add_new_task(self, title, desc, reward, url):
-        """চ্যানেল থেকে নতুন টাস্ক যোগ করার ফাংশন"""
-        with self._conn() as conn:
-            conn.execute(
-                "INSERT INTO tasks (title, desc, reward, url, created_at) VALUES (?, ?, ?, ?, ?)",
-                (title, desc, reward, url, datetime.now().isoformat())
-            )
-
-    def get_all_tasks(self):
-        """সবগুলো একটিভ টাস্ক লিস্ট নিয়ে আসার ফাংশন"""
-        with self._conn() as conn:
-            rows = conn.execute("SELECT * FROM tasks ORDER BY task_id DESC").fetchall()
-            return [dict(r) for r in rows]
-
-    def get_task(self, task_id):
-        """নির্দিষ্ট একটি টাস্কের ডিটেইলস জানা"""
-        with self._conn() as conn:
-            row = conn.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
-            return dict(row) if row else None
+    # ---------------- USER FUNCTIONS ----------------
 
     def register_user(self, user_id, name, username, referrer_id=None):
-        with self._conn() as conn:
-            existing = conn.execute("SELECT user_id FROM users WHERE user_id=?", (user_id,)).fetchone()
-            if existing:
-                return False
-            conn.execute(
-                "INSERT INTO users (user_id, name, username, referrer_id, joined_date) VALUES (?,?,?,?,?)",
-                (user_id, name, username, referrer_id, datetime.now().strftime("%d/%m/%Y"))
-            )
-            return True
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+        if cursor.fetchone():
+            return False  # ইউজার অলরেডি রেজিস্টার্ড
+        
+        joined_date = datetime.now().strftime("%Y-%m-%d")
+        cursor.execute(
+            "INSERT INTO users (user_id, name, username, referred_by, joined_date) VALUES (?, ?, ?, ?, ?)",
+            (user_id, name, username, referrer_id, joined_date)
+        )
+        self.conn.commit()
+        return True
 
     def get_user(self, user_id):
-        with self._conn() as conn:
-            row = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-            return dict(row) if row else None
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT user_id, name, username, balance, referred_by, joined_date, last_daily_bonus FROM users WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        if row:
+            return {
+                "user_id": row[0],
+                "name": row[1],
+                "username": row[2],
+                "balance": row[3],
+                "referred_by": row[4],
+                "joined_date": row[5],
+                "last_daily_bonus": row[6]
+            }
+        return None
 
     def add_balance(self, user_id, amount):
-        with self._conn() as conn:
-            conn.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, user_id))
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+        self.conn.commit()
 
     def get_referral_count(self, user_id):
-        with self._conn() as conn:
-            row = conn.execute("SELECT COUNT(*) as cnt FROM users WHERE referrer_id=?", (user_id,)).fetchone()
-            return row["cnt"]
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users WHERE referred_by = ?", (user_id,))
+        return cursor.fetchone()[0]
 
-    def claim_daily_bonus(self, user_id, amount):
-        with self._conn() as conn:
-            row = conn.execute("SELECT last_bonus FROM users WHERE user_id=?", (user_id,)).fetchone()
-            if row is None:
-                return False, None
+    def claim_daily_bonus(self, user_id, bonus_amount):
+        user = self.get_user(user_id)
+        if not user:
+            return False, None
 
-            now = datetime.now()
-            if row["last_bonus"]:
-                last_claim = datetime.fromisoformat(row["last_bonus"])
-                elapsed = now - last_claim
-                cooldown = timedelta(hours=BONUS_COOLDOWN_HOURS)
-                if elapsed < cooldown:
-                    remaining = cooldown - elapsed
-                    return False, remaining
+        now = datetime.now()
+        if user["last_daily_bonus"]:
+            last_bonus_time = datetime.strptime(user["last_daily_bonus"], "%Y-%m-%d %H:%M:%S")
+            time_passed = now - last_bonus_time
+            if time_passed < timedelta(hours=24):
+                time_remaining = timedelta(hours=24) - time_passed
+                return False, time_remaining
 
-            conn.execute(
-                "UPDATE users SET balance = balance + ?, last_bonus = ? WHERE user_id=?",
-                (amount, now.isoformat(), user_id)
-            )
-            new_balance = conn.execute(
-                "SELECT balance FROM users WHERE user_id=?", (user_id,)
-            ).fetchone()["balance"]
-            return True, new_balance
+        cursor = self.conn.cursor()
+        now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute("UPDATE users SET balance = balance + ?, last_daily_bonus = ? WHERE user_id = ?", (bonus_amount, now_str, user_id))
+        self.conn.commit()
+        
+        new_balance = user["balance"] + bonus_amount
+        return True, new_balance
 
-    def has_pending_task(self, user_id, task_id):
-        with self._conn() as conn:
-            row = conn.execute(
-                "SELECT id FROM task_submissions WHERE user_id=? AND task_id=? AND status='pending'",
-                (user_id, task_id)
-            ).fetchone()
-            return row is not None
+    # ---------------- WITHDRAW FUNCTIONS ----------------
 
-    def submit_task_proof(self, user_id, task_id, photo_file_id, reward):
-        with self._conn() as conn:
-            already_done = conn.execute(
-                "SELECT status FROM task_submissions WHERE user_id=? AND task_id=?", 
-                (user_id, task_id)
-            ).fetchone()
+    def request_withdrawal(self, user_id, amount, method, account_no, min_withdraw):
+        user = self.get_user(user_id)
+        if not user:
+            return False, "account_not_found", None
+        if amount < min_withdraw:
+            return False, "below_minimum", None
+        if user["balance"] < amount:
+            return False, "insufficient_balance", None
+        if self.has_pending_withdrawal(user_id):
+            return False, "already_pending", None
+
+        try:
+            cursor = self.conn.cursor()
+            # ইউজারের মেইন ব্যালেন্স থেকে টাকা কাটা
+            cursor.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, user_id))
             
-            if already_done and already_done["status"] in ["pending", "approved"]:
-                return False, already_done["status"]
-
-            cur = conn.execute(
-                "INSERT INTO task_submissions (user_id, task_id, photo_file_id, status, reward, submitted_at) "
-                "VALUES (?, ?, ?, 'pending', ?, ?)",
-                (user_id, task_id, photo_file_id, reward, datetime.now().isoformat())
+            # উইথড্র রিকোয়েস্ট ইনসার্ট করা
+            cursor.execute(
+                "INSERT INTO withdrawals (user_id, amount, method, account_no, status) VALUES (?, ?, ?, ?, 'pending')",
+                (user_id, amount, method, account_no)
             )
-            return True, cur.lastrowid
-
-    def get_submission(self, sub_id):
-        with self._conn() as conn:
-            row = conn.execute("SELECT * FROM task_submissions WHERE id=?", (sub_id,)).fetchone()
-            return dict(row) if row else None
-
-    def approve_task_submission(self, sub_id):
-        with self._conn() as conn:
-            sub = conn.execute("SELECT * FROM task_submissions WHERE id=? AND status='pending'", (sub_id,)).fetchone()
-            if not sub:
-                return False
+            self.conn.commit()
             
-            conn.execute("UPDATE task_submissions SET status='approved' WHERE id=?", (sub_id,))
-            conn.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (sub["reward"], sub["user_id"]))
-            return sub["user_id"], sub["reward"], sub["task_id"]
-
-    def reject_task_submission(self, sub_id):
-        with self._conn() as conn:
-            sub = conn.execute("SELECT * FROM task_submissions WHERE id=? AND status='pending'", (sub_id,)).fetchone()
-            if not sub:
-                return False
-            conn.execute("UPDATE task_submissions SET status='rejected' WHERE id=?", (sub_id,))
-            return sub["user_id"], sub["task_id"]
+            # 📢 গুরুত্বপূর্ণ: নতুন তৈরি হওয়া উইথড্র রো আইডিটি (wd_id) মেইন কোডে রিটার্ন করা হচ্ছে
+            wd_id = cursor.lastrowid
+            return True, "success", wd_id
+        except Exception as e:
+            self.conn.rollback()
+            print(f"Withdraw DB Error: {e}")
+            return False, "db_error", None
 
     def has_pending_withdrawal(self, user_id):
-        with self._conn() as conn:
-            row = conn.execute(
-                "SELECT id FROM withdrawals WHERE user_id=? AND status='pending'", (user_id,)
-            ).fetchone()
-            return row is not None
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT 1 FROM withdrawals WHERE user_id = ? AND status = 'pending'", (user_id,))
+        return cursor.fetchone() is not None
 
-    def request_withdrawal(self, user_id, amount, method, account_no, min_amount):
-        with self._conn() as conn:
-            user = conn.execute("SELECT balance FROM users WHERE user_id=?", (user_id,)).fetchone()
-            if user is None:
-                return False, "account_not_found", None
+    def get_withdrawal(self, wd_id):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT user_id, amount, method, account_no, status FROM withdrawals WHERE id = ?", (wd_id,))
+        row = cursor.fetchone()
+        if row:
+            return {
+                "user_id": row[0],
+                "amount": row[1],
+                "method": row[2],
+                "account_no": row[3],
+                "status": row[4]
+            }
+        return None
 
-            if self.has_pending_withdrawal(user_id):
-                return False, "already_pending", None
+    def approve_withdrawal(self, wd_id):
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE withdrawals SET status = 'approved' WHERE id = ?", (wd_id,))
+        self.conn.commit()
 
-            if amount < min_amount:
-                return False, "below_minimum", None
+    def reject_withdrawal(self, wd_id):
+        wd = self.get_withdrawal(wd_id)
+        if wd:
+            cursor = self.conn.cursor()
+            # রিজেক্ট হলে টাকা আবার ইউজারের ব্যালেন্সে ফেরত দেওয়া হচ্ছে
+            cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (wd["amount"], wd["user_id"]))
+            cursor.execute("UPDATE withdrawals SET status = 'rejected' WHERE id = ?", (wd_id,))
+            self.conn.commit()
 
-            if user["balance"] < amount:
-                return False, "insufficient_balance", None
+    # ---------------- TASK FUNCTIONS ----------------
 
-            conn.execute("UPDATE users SET balance = balance - ? WHERE user_id=?", (amount, user_id))
-            cur = conn.execute(
-                "INSERT INTO withdrawals (user_id, amount, method, account_no, status, requested_at) "
-                "VALUES (?,?,?,?, 'pending', ?)",
-                (user_id, amount, method, account_no, datetime.now().isoformat())
-            )
-            return True, "ok", cur.lastrowid
+    def add_new_task(self, title, desc, reward, url):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT INTO tasks (title, desc, reward, url) VALUES (?, ?, ?, ?)",
+            (title, desc, reward, url)
+        )
+        self.conn.commit()
 
-    def get_withdrawal(self, withdrawal_id):
-        with self._conn() as conn:
-            row = conn.execute("SELECT * FROM withdrawals WHERE id=?", (withdrawal_id,)).fetchone()
-            return dict(row) if row else None
+    def get_all_tasks(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT task_id, title, desc, reward, url FROM tasks")
+        rows = cursor.fetchall()
+        tasks = []
+        for row in rows:
+            tasks.append({
+                "task_id": row[0],
+                "title": row[1],
+                "desc": row[2],
+                "reward": row[3],
+                "url": row[4]
+            })
+        return tasks
 
-    def approve_withdrawal(self, withdrawal_id):
-        with self._conn() as conn:
-            row = conn.execute("SELECT status FROM withdrawals WHERE id=?", (withdrawal_id,)).fetchone()
-            if row is None or row["status"] != "pending":
-                return False
-            conn.execute(
-                "UPDATE withdrawals SET status='approved', handled_at=? WHERE id=?",
-                (datetime.now().isoformat(), withdrawal_id)
-            )
-            return True
+    def get_task(self, task_id):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT task_id, title, desc, reward, url FROM tasks WHERE task_id = ?", (task_id,))
+        row = cursor.fetchone()
+        if row:
+            return {"task_id": row[0], "title": row[1], "desc": row[2], "reward": row[3], "url": row[4]}
+        return None
 
-    def reject_withdrawal(self, withdrawal_id):
-        with self._conn() as conn:
-            row = conn.execute("SELECT * FROM withdrawals WHERE id=?", (withdrawal_id,)).fetchone()
-            if row is None or row["status"] != "pending":
-                return False
-            conn.execute(
-                "UPDATE users SET balance = balance + ? WHERE user_id=?",
-                (row["amount"], row["user_id"])
-            )
-            conn.execute(
-                "UPDATE withdrawals SET status='rejected', handled_at=? WHERE id=?",
-                (datetime.now().isoformat(), withdrawal_id)
-            )
-            return True
+    def has_pending_task(self, user_id, task_id):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT 1 FROM task_submissions WHERE user_id = ? AND task_id = ? AND status = 'pending'", (user_id, task_id))
+        return cursor.fetchone() is not None
+
+    def submit_task_proof(self, user_id, task_id, photo_id, reward):
+        cursor = self.conn.cursor()
+        
+        # অলরেডি কমপ্লিট বা পেন্ডিং আছে কিনা ডাবল চেক
+        cursor.execute("SELECT status FROM task_submissions WHERE user_id = ? AND task_id = ?", (user_id, task_id))
+        row = cursor.fetchone()
+        if row:
+            return False, row[0]  # 'approved' অথবা 'pending' রিটার্ন করবে
+            
+        cursor.execute(
+            "INSERT INTO task_submissions (user_id, task_id, photo_id, reward, status) VALUES (?, ?, ?, ?, 'pending')",
+            (user_id, task_id, photo_id, reward)
+        )
+        self.conn.commit()
+        return True, cursor.lastrowid
+
+    def approve_task_submission(self, sub_id):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT user_id, reward, task_id, status FROM task_submissions WHERE sub_id = ?", (sub_id,))
+        row = cursor.fetchone()
+        
+        if row and row[3] == 'pending':
+            user_id, reward, task_id = row[0], row[1], row[2]
+            cursor.execute("UPDATE task_submissions SET status = 'approved' WHERE sub_id = ?", (sub_id,))
+            cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (reward, user_id))
+            self.conn.commit()
+            return user_id, reward, task_id
+        return None
+
+    def reject_task_submission(self, sub_id):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT user_id, task_id, status FROM task_submissions WHERE sub_id = ?", (sub_id,))
+        row = cursor.fetchone()
+        
+        if row and row[2] == 'pending':
+            user_id, task_id = row[0], row[1]
+            cursor.execute("UPDATE task_submissions SET status = 'rejected' WHERE sub_id = ?", (sub_id,))
+            self.conn.commit()
+            return user_id, task_id
+        return None
