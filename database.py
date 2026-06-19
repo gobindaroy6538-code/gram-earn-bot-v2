@@ -80,6 +80,12 @@ class Database:
             }
         return None
 
+    def get_all_users(self):
+        """👑 অ্যাডমিন ব্রডকাস্টের জন্য সব ইউজারের আইডি পাওয়ার মেথড"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT user_id FROM users")
+        return [{"user_id": r[0]} for r in cursor.fetchall()]
+
     def add_balance(self, user_id, amount):
         cursor = self.conn.cursor()
         cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
