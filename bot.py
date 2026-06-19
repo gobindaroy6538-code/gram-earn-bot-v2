@@ -7,8 +7,8 @@ from telegram.ext import (
 )
 from database import Database
 
-# এরর লগ দেখার জন্য সেটিংস অন রাখা হলো
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 REFERRAL_BONUS = 5
@@ -17,15 +17,14 @@ DAILY_BONUS = 2
 MIN_WITHDRAW = 20
 ADMIN_ID = 8012544346
 
-# 📢 আপনার নতুন আইডি এবং চ্যানেল আইডি এখানে ফিক্সড করে দেওয়া হলো
-CHANNEL_ID = -1004375418813       
-WITHDRAW_LOG_ID = -1004375418813  
+# ✅ একই চ্যানেল আইডি দুই জায়গায় ব্যবহার করা হচ্ছে (টাস্ক + উইথড্র)
+CHANNEL_ID = -1004375418813
+WITHDRAW_LOG_ID = CHANNEL_ID  # 👈 এখন এটা CHANNEL_ID এর সমান, আলাদা ভুল আইডি নয়
 
 WITHDRAW_METHODS = ["bKash", "Nagad", "Rocket"]
 
-# Conversation States
 ASK_METHOD, ASK_NUMBER, ASK_AMOUNT = range(3)
-ASK_TASK_PROOF = 4  
+ASK_TASK_PROOF = 4
 
 db = Database()
 
@@ -142,26 +141,23 @@ async def daily_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-# ---------------- 🎯 DYNAMIC TASK SYSTEM ----------------
+# ---------------- TASK SYSTEM ----------------
 
 async def show_task_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     tasks = db.get_all_tasks()
-    
+
     if not tasks:
-        text = "🎯 *টাস্ক লিস্ট*\n\nবর্তমানে কোনো কাজ উপলব্ধ নেই। দয়া করে পরে চেষ্টা করুন।"
+        text = "🎯 *টাস্ক লিস্ট*\n\nবর্তমানে কোনো কাজ উপলব্ধ নেই। দয়া করে পরে চেষ্টা করুন।"
         keyboard = [[InlineKeyboardButton("🏠 মেনু", callback_data="menu")]]
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     text = "🎯 *টাস্ক লিস্ট*\n\nনিচের যেকোনো একটি টাস্ক সিলেক্ট করে কাজ সম্পন্ন করুন:"
     keyboard = []
-    
     for task in tasks:
         keyboard.append([InlineKeyboardButton(f"{task['title']} ({task['reward']} টাকা)", callback_data=f"view_task_{task['task_id']}")])
-        
     keyboard.append([InlineKeyboardButton("🏠 মেনু", callback_data="menu")])
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -169,12 +165,11 @@ async def show_task_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def view_single_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     task_id = int(query.data.replace("view_task_", ""))
     task = db.get_task(task_id)
-    
+
     if not task:
-        await query.edit_message_text("⚠️ টাস্কটি খুঁজে পাওয়া যায়নি।")
+        await query.edit_message_text("⚠️ টাস্কটি খুঁজে পাওয়া যায়নি।")
         return
 
     text = (
@@ -183,7 +178,6 @@ async def view_single_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💰 বোনাস: *{task['reward']} টাকা*\n\n"
         f"👇 নিচে 'স্ক্রিনশট জমা দিন' বাটনে ক্লিক করে প্রুফ পাঠান।"
     )
-    
     keyboard = [
         [InlineKeyboardButton("🔗 লিংকে যান", url=task["url"])],
         [InlineKeyboardButton("📤 স্ক্রিনশট জমা দিন", callback_data=f"submit_proof_{task_id}")],
@@ -195,13 +189,12 @@ async def view_single_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def submit_proof_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     task_id = int(query.data.replace("submit_proof_", ""))
-    context.user_data["current_task_id"] = task_id 
-    
+    context.user_data["current_task_id"] = task_id
+
     if db.has_pending_task(query.from_user.id, task_id):
         await query.edit_message_text(
-            "⚠️ আপনার এই কাজের একটি প্রুফ অলরেডি অ্যাডমিন রিভিউতে আছে।", 
+            "⚠️ আপনার এই কাজের একটি প্রুফ অলরেডি অ্যাডমিন রিভিউতে আছে।",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 মেনু", callback_data="menu")]])
         )
         return ConversationHandler.END
@@ -214,14 +207,14 @@ async def task_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE
     user = update.effective_user
     photo_file_id = update.message.photo[-1].file_id
     task_id = context.user_data.get("current_task_id")
-    
+
     task = db.get_task(task_id)
     if not task:
-        await update.message.reply_text("⚠️ টাস্কটি সিস্টেম থেকে ডিলিট করা হয়েছে।")
+        await update.message.reply_text("⚠️ টাস্কটি সিস্টেম থেকে ডিলিট করা হয়েছে।")
         return ConversationHandler.END
-        
+
     success, result = db.submit_task_proof(user.id, task_id, photo_file_id, task["reward"])
-    
+
     if not success:
         if result == "approved":
             await update.message.reply_text("⚠️ আপনি এই টাস্কটি ইতিমধ্যেই সম্পন্ন করেছেন।")
@@ -238,30 +231,27 @@ async def task_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE
         InlineKeyboardButton("✅ এপ্রুভ টাস্ক", callback_data=f"tk_approve_{result}"),
         InlineKeyboardButton("❌ রিজেক্ট টাস্ক", callback_data=f"tk_reject_{result}")
     ]]
-    
+
     try:
         await context.bot.send_photo(
-            chat_id=CHANNEL_ID,  
+            chat_id=CHANNEL_ID,
             photo=photo_file_id,
             caption=f"🎯 *নতুন টাস্ক সাবমিশন!*\n\n📌 কাজ: {task['title']}\n👤 ইউজার: {user.first_name} (`{user.id}`)\n💰 বোনাস: {task['reward']} টাকা\nStatus: ⏳ Pending",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(admin_keyboard)
         )
+        logger.info("✅ Task proof sent to channel successfully.")
     except Exception as e:
-        logging.error(f"Channel task notify failed: {e}")
-        
+        logger.error(f"❌ Channel task notify failed: {e}")
+
     context.user_data.clear()
     return ConversationHandler.END
 
 
-# ---------------- 🛠️ CHANNEL AUTOMATIC TASK ADDER ----------------
-
 async def channel_task_adder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.channel_post.chat.id != CHANNEL_ID:
         return
-
     text = update.channel_post.text
-    
     if text and text.startswith("#addtask"):
         try:
             lines = text.split("\n")
@@ -269,16 +259,14 @@ async def channel_task_adder(update: Update, context: ContextTypes.DEFAULT_TYPE)
             desc = lines[2].strip()
             reward = float(lines[3].strip())
             url = lines[4].strip()
-            
             db.add_new_task(title, desc, reward, url)
-            await update.channel_post.reply_text(f"✅ *নতুন টাস্ক সফলভাবে যুক্ত হয়েছে!*\n\n📋 {title}")
-            
+            await update.channel_post.reply_text(f"✅ *নতুন টাস্ক সফলভাবে যুক্ত হয়েছে!*\n\n📋 {title}")
         except Exception as e:
-            logging.error(f"Channel task parsing error: {e}")
-            await update.channel_post.reply_text("⚠️ *টাস্ক যোগ করতে সমস্যা হয়েছে!*\n\nসঠিক ফরম্যাট ব্যবহার করুন:\n#addtask\nটাইটেল\nকাজের বিবরণ\nটাকা (শুধু সংখ্যা)\nলিংক")
+            logger.error(f"Channel task parsing error: {e}")
+            await update.channel_post.reply_text(
+                "⚠️ *টাস্ক যোগ করতে সমস্যা হয়েছে!*\n\nসঠিক ফরম্যাট ব্যবহার করুন:\n#addtask\nটাইটেল\nকাজের বিবরণ\nটাকা (শুধু সংখ্যা)\nলিংক"
+            )
 
-
-# ---------------- 🛠️ ADMIN APPROVE FOR TASK ----------------
 
 async def admin_handle_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -298,7 +286,8 @@ async def admin_handle_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_caption(caption="✅ এই টাস্কটি এপ্রুভ করা হয়েছে।")
             try:
                 await context.bot.send_message(u_id, f"🎉 আপনার পাঠানো স্ক্রিনশটটি এপ্রুভ হয়েছে!\n+{reward} টাকা ব্যালেন্সে যোগ হয়েছে।")
-            except: pass
+            except Exception:
+                pass
         else:
             await query.edit_message_caption(caption="⚠️ ইতিমধ্যে অ্যাকশন নেওয়া হয়েছে বা ডাটা পাওয়া যায়নি।")
     else:
@@ -308,12 +297,13 @@ async def admin_handle_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_caption(caption="❌ এই টাস্কটি রিজেক্ট করা হয়েছে।")
             try:
                 await context.bot.send_message(u_id, "❌ আপনার পাঠানো টাস্ক স্ক্রিনশটটি বাতিল (Reject) করা হয়েছে। সঠিক নিয়মে আবার চেষ্টা করুন।")
-            except: pass
+            except Exception:
+                pass
         else:
             await query.edit_message_caption(caption="⚠️ ইতিমধ্যে অ্যাকশন নেওয়া হয়েছে।")
 
 
-# ---------------- Withdraw Conversation ----------------
+# ---------------- WITHDRAW ----------------
 
 async def withdraw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -364,11 +354,8 @@ async def withdraw_method_chosen(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     method = query.data.replace("wd_method_", "")
     context.user_data["wd_method"] = method
-
     await query.edit_message_text(
-        f"✅ মেথড: *{method}*\n\n"
-        f"এখন আপনার *{method} নাম্বার* লিখে পাঠান:\n"
-        f"(উদাহরণ: 01XXXXXXXXX)",
+        f"✅ মেথড: *{method}*\n\nএখন আপনার *{method} নাম্বার* লিখে পাঠান:\n(উদাহরণ: 01XXXXXXXXX)",
         parse_mode="Markdown"
     )
     return ASK_NUMBER
@@ -376,16 +363,12 @@ async def withdraw_method_chosen(update: Update, context: ContextTypes.DEFAULT_T
 
 async def withdraw_number_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     number = update.message.text.strip()
-
     if not (number.isdigit() and 9 <= len(number) <= 15):
-        await update.message.reply_text(
-            "⚠️ সঠিক নাম্বার লিখুন (শুধু সংখ্যা, যেমন: 01XXXXXXXXX)।"
-        )
+        await update.message.reply_text("⚠️ সঠিক নাম্বার লিখুন (শুধু সংখ্যা, যেমন: 01XXXXXXXXX)।")
         return ASK_NUMBER
 
     context.user_data["wd_number"] = number
     user = db.get_user(update.effective_user.id)
-
     await update.message.reply_text(
         f"💰 আপনার ব্যালেন্স: *{user['balance']:.2f} টাকা*\n\n"
         f"কত টাকা উইথড্র করতে চান লিখুন (মিনিমাম {MIN_WITHDRAW} টাকা):",
@@ -407,15 +390,7 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
     method = context.user_data.get("wd_method")
     number = context.user_data.get("wd_number")
 
-    # ডাটাবেজ রিটার্ন হ্যান্ডল করা
-    db_res = db.request_withdrawal(user_id, amount, method, number, MIN_WITHDRAW)
-    
-    # ব্যাকওয়ার্ড কম্প্যাটিবিলিটির জন্য ডাটাবেজের রিটার্ন ভ্যালুর সাইজ চেক করা
-    if isinstance(db_res, tuple) and len(db_res) == 3:
-        success, reason, wd_id = db_res
-    else:
-        success, reason = db_res[0], db_res[1]
-        wd_id = 1 # ডাটাবেজে wd_id রিটার্ন না থাকলে ডিফল্ট আইডি সেট
+    success, reason, wd_id = db.request_withdrawal(user_id, amount, method, number, MIN_WITHDRAW)
 
     if not success:
         messages = {
@@ -443,12 +418,12 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-    # 🛠️ এপ্রুভ ও রিজেক্ট বাটন লেআউট
     admin_keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ এপ্রুভ", callback_data=f"wd_approve_{wd_id}"),
         InlineKeyboardButton("❌ রিজেক্ট", callback_data=f"wd_reject_{wd_id}"),
     ]])
 
+    bot_username = (await context.bot.get_me()).username
     channel_text = (
         f"🔔 *নতুন উইথড্র রিকোয়েস্ট* #{wd_id}\n\n"
         f"👤 ইউজার: {update.effective_user.first_name} (@{update.effective_user.username or 'নাই'})\n"
@@ -456,19 +431,24 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
         f"💵 পরিমাণ: {amount:.2f} টাকা\n"
         f"📱 মেথড: {method}\n"
         f"🔢 নাম্বার: {number}\n\n"
-        f"🤖 Bot: @{(await context.bot.get_me()).username}"
+        f"🤖 Bot: @{bot_username}"
     )
 
-    # 📢 উইথড্র মেসেজ সরাসরি নির্দিষ্ট নতুন গ্রুপ আইডিতে পাঠানো হচ্ছে
     try:
-        await context.bot.send_message(
-            chat_id=WITHDRAW_LOG_ID, 
-            text=channel_text, 
+        sent = await context.bot.send_message(
+            chat_id=WITHDRAW_LOG_ID,
+            text=channel_text,
             parse_mode="Markdown",
             reply_markup=admin_keyboard
         )
+        logger.info(f"✅ Withdraw notification sent successfully to {WITHDRAW_LOG_ID}, message_id={sent.message_id}")
     except Exception as e:
-        logging.error(f"❌ উইথড্র লগ গ্রুপে মেসেজ পাঠানো ব্যর্থ হয়েছে। কারণ: {e}")
+        logger.error(f"❌ FAILED to send withdraw notification to {WITHDRAW_LOG_ID}. Reason: {e}")
+        # অ্যাডমিনকে ব্যক্তিগতভাবে অন্তত জানিয়ে দেওয়া হচ্ছে, যাতে নোটিফিকেশন মিস না হয়
+        try:
+            await context.bot.send_message(ADMIN_ID, f"⚠️ চ্যানেলে পাঠাতে ব্যর্থ, তবে নতুন উইথড্র এসেছে:\n\n{channel_text}", parse_mode="Markdown", reply_markup=admin_keyboard)
+        except Exception as e2:
+            logger.error(f"❌ FAILED to send to admin DM too. Reason: {e2}")
 
     context.user_data.clear()
     return ConversationHandler.END
@@ -487,7 +467,6 @@ async def admin_handle_withdrawal(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
 
-    # মূল এডমিন আইডি ভেরিফিকেশন
     if query.from_user.id != ADMIN_ID:
         await query.answer("⛔ আপনি এই বটের মূল এডমিন নন!", show_alert=True)
         return
@@ -529,7 +508,7 @@ async def admin_handle_withdrawal(update: Update, context: ContextTypes.DEFAULT_
     try:
         await context.bot.send_message(wd["user_id"], user_msg, parse_mode="Markdown")
     except Exception as e:
-        logging.error(f"User notify failed: {e}")
+        logger.error(f"User notify failed: {e}")
 
 
 def main():
@@ -561,13 +540,13 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(withdraw_conv)
     app.add_handler(task_conv)
-    
+
     app.add_handler(CallbackQueryHandler(show_main_menu, pattern="^menu$"))
     app.add_handler(CallbackQueryHandler(show_balance, pattern="^balance$"))
     app.add_handler(CallbackQueryHandler(show_referral, pattern="^referral$"))
     app.add_handler(CallbackQueryHandler(daily_bonus, pattern="^daily_bonus$"))
     app.add_handler(CallbackQueryHandler(show_task_menu, pattern="^task_menu$"))
-    app.add_handler(CallbackQueryHandler(view_single_task, pattern="^view_task_")) 
+    app.add_handler(CallbackQueryHandler(view_single_task, pattern="^view_task_"))
     app.add_handler(CallbackQueryHandler(admin_handle_task, pattern="^tk_(approve|reject)_"))
     app.add_handler(CallbackQueryHandler(admin_handle_withdrawal, pattern="^wd_(approve|reject)_"))
 
