@@ -17,14 +17,21 @@ DAILY_BONUS = 2
 MIN_WITHDRAW = 20
 ADMIN_ID = 8012544346
 
-# ✅ একই চ্যানেল আইডি দুই জায়গায় ব্যবহার করা হচ্ছে (টাস্ক + উইথড্র)
 CHANNEL_ID = -1004375418813
-WITHDRAW_LOG_ID = CHANNEL_ID  # 👈 এখন এটা CHANNEL_ID এর সমান, আলাদা ভুল আইডি নয়
+WITHDRAW_LOG_ID = CHANNEL_ID  
 
 WITHDRAW_METHODS = ["bKash", "Nagad", "Rocket"]
 
+# --- Conversation States ---
 ASK_METHOD, ASK_NUMBER, ASK_AMOUNT = range(3)
 ASK_TASK_PROOF = 4
+
+# নতুন এডমিন প্যানেল স্টেট
+ASK_ADMIN_CHECK_USER = 5
+ASK_ADMIN_CHANGE_BAL_ID = 6
+ASK_ADMIN_CHANGE_BAL_AMT = 7
+ASK_ADMIN_BROADCAST = 8
+ASK_ADMIN_ADD_TASK_DATA = 9
 
 db = Database()
 
@@ -444,7 +451,6 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
         logger.info(f"✅ Withdraw notification sent successfully to {WITHDRAW_LOG_ID}, message_id={sent.message_id}")
     except Exception as e:
         logger.error(f"❌ FAILED to send withdraw notification to {WITHDRAW_LOG_ID}. Reason: {e}")
-        # অ্যাডমিনকে ব্যক্তিগতভাবে অন্তত জানিয়ে দেওয়া হচ্ছে, যাতে নোটিফিকেশন মিস না হয়
         try:
             await context.bot.send_message(ADMIN_ID, f"⚠️ চ্যানেলে পাঠাতে ব্যর্থ, তবে নতুন উইথড্র এসেছে:\n\n{channel_text}", parse_mode="Markdown", reply_markup=admin_keyboard)
         except Exception as e2:
@@ -511,6 +517,174 @@ async def admin_handle_withdrawal(update: Update, context: ContextTypes.DEFAULT_
         logger.error(f"User notify failed: {e}")
 
 
+# ---------------- ADMIN PANEL SYSTEM (COMMAND BASED) ----------------
+
+async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID:
+        if update.message:
+            await update.message.reply_text("⛔ আপনি এই বটের অ্যাডমিন নন!")
+        return ConversationHandler.END
+
+    text = (
+        "👑 *Gram Earn Bot - এডমিন প্যানেল*\n\n"
+        "নিচের বাটনগুলো ব্যবহার করে বট নিয়ন্ত্রণ করুন:"
+    )
+    keyboard = [
+        [InlineKeyboardButton("🔍 ইউজার চেক করুন", callback_data="adm_check_user"),
+         InlineKeyboardButton("💰 ব্যালেন্স পরিবর্তন", callback_data="adm_change_bal")],
+        [InlineKeyboardButton("📢 ব্রডকাস্ট (সবাইকে মেসেজ)", callback_data="adm_broadcast"),
+         InlineKeyboardButton("🎯 নতুন টাস্ক যোগ করুন", callback_data="adm_add_task")],
+        [InlineKeyboardButton("❌ প্যানেল বন্ধ করুন", callback_data="adm_close")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+    return ConversationHandler.END
+
+
+async def adm_check_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
+    await update.callback_query.edit_message_text("🔍 যে ইউজারের তথ্য দেখতে চান তার *User ID* পাঠান:")
+    return ASK_ADMIN_CHECK_USER
+
+
+async def adm_check_user_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        target_id = int(update.message.text.strip())
+        user = db.get_user(target_id)
+        if not user:
+            await update.message.reply_text("❌ এই আইডি দিয়ে কোনো ইউজার পাওয়া যায়নি।")
+            return ConversationHandler.END
+        
+        ref_count = db.get_referral_count(target_id)
+        text = (
+            f"👤 *ইউজার ইনফো: {user['name']}*\n\n"
+            f"🆔 ID: `{target_id}`\n"
+            f"💰 ব্যালেন্স: {user['balance']:.2f} টাকা\n"
+            f"👥 মোট রেফার: {ref_count} জন\n"
+            f"📅 জয়েনিং ডেট: {user['joined_date']}"
+        )
+        await update.message.reply_text(text, parse_mode="Markdown")
+    except ValueError:
+        await update.message.reply_text("⚠️ আইডি শুধুমাত্র সংখ্যা হওয়া উচিত। আবার চেষ্টা করুন।")
+        return ASK_ADMIN_CHECK_USER
+    return ConversationHandler.END
+
+
+async def adm_change_bal_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
+    await update.callback_query.edit_message_text("💰 যার ব্যালেন্স পরিবর্তন করবেন তার *User ID* দিন:")
+    return ASK_ADMIN_CHANGE_BAL_ID
+
+
+async def adm_change_bal_id_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        target_id = int(update.message.text.strip())
+        if not db.get_user(target_id):
+            await update.message.reply_text("❌ ইউজার পাওয়া যায়নি। সঠিক আইডি দিন:")
+            return ASK_ADMIN_CHANGE_BAL_ID
+        
+        context.user_data["adm_target_id"] = target_id
+        await update.message.reply_text("👉 কত টাকা যোগ বা বিয়োগ করতে চান লিখুন:\n(যেমন: ৫০ টাকা বাড়াতে `50`, আর কমাতে `-50` লিখুন)")
+        return ASK_ADMIN_CHANGE_BAL_AMT
+    except ValueError:
+        await update.message.reply_text("⚠️ সঠিক আইডি দিন (শুধু সংখ্যা):")
+        return ASK_ADMIN_CHANGE_BAL_ID
+
+
+async def adm_change_bal_amt_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        amount = float(update.message.text.strip())
+        target_id = context.user_data.get("adm_target_id")
+        
+        db.add_balance(target_id, amount)
+        await update.message.reply_text(f"✅ সফলভাবে ইউজার `{target_id}` এর ব্যালেন্সে {amount} টাকা আপডেট করা হয়েছে।")
+        try:
+            await context.bot.send_message(target_id, f"🔔 এডমিন আপনার ব্যালেন্স আপডেট করেছেন।")
+        except Exception:
+            pass
+    except ValueError:
+        await update.message.reply_text("⚠️ সঠিক সংখ্যা লিখুন (যেমন: 50 বা -50):")
+        return ASK_ADMIN_CHANGE_BAL_AMT
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def adm_broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
+    await update.callback_query.edit_message_text("📢 সব ইউজারের কাছে যে নোটিফিকেশনটি পাঠাতে চান তা লিখে পাঠান:")
+    return ASK_ADMIN_BROADCAST
+
+
+async def adm_broadcast_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg_text = update.message.text
+    try:
+        users = db.get_all_users()
+    except AttributeError:
+        await update.message.reply_text("⚠️ ডাটাবেজে `get_all_users()` মেثডটি তৈরি করা নেই।")
+        return ConversationHandler.END
+
+    if not users:
+        await update.message.reply_text("❌ বটের কোনো ইউজার খুঁজে পাওয়া যায়নি।")
+        return ConversationHandler.END
+
+    sent_count = 0
+    await update.message.reply_text("⚡ ব্রডকাস্ট পাঠানো শুরু হয়েছে... দয়া করে অপেক্ষা করুন।")
+    
+    for u in users:
+        try:
+            await context.bot.send_message(chat_id=u['user_id'], text=f"📢 *গুরুত্বপূর্ণ নোটিশ:*\n\n{msg_text}", parse_mode="Markdown")
+            sent_count += 1
+        except Exception:
+            continue
+            
+    await update.message.reply_text(f"✅ ব্রডকাস্ট সম্পন্ন! মোট {sent_count} জন ইউজারকে মেসেজ পাঠানো হয়েছে।")
+    return ConversationHandler.END
+
+
+async def adm_add_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
+    instructions = (
+        "🎯 *নতুন টাস্ক যোগ করার নিয়ম*\n\n"
+        "নিচের ফরম্যাটে তথ্যটি একসাথে লিখে পাঠান:\n\n"
+        "`টাইটেল || কাজের বিবরণ || টাকা || লিংক` \n\n"
+        "*উদাহরণ:*\n"
+        "`ইউটিউব সাবস্ক্রাইব || চ্যানেলটি সাবস্ক্রাইব করে স্ক্রিনশট দিন || 3.5 || https://youtube.com/...`"
+    )
+    await update.callback_query.edit_message_text(instructions, parse_mode="Markdown")
+    return ASK_ADMIN_ADD_TASK_DATA
+
+
+async def adm_add_task_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    raw_text = update.message.text
+    try:
+        parts = [p.strip() for p in raw_text.split("||")]
+        if len(parts) < 4:
+            raise ValueError
+        
+        title = parts[0]
+        desc = parts[1]
+        reward = float(parts[2])
+        url = parts[3]
+        
+        db.add_new_task(title, desc, reward, url)
+        await update.message.reply_text(f"✅ *নতুন টাস্ক সফলভাবে যুক্ত হয়েছে!*\n\n📌 টাইটেল: {title}\n💰 রিওয়ার্ড: {reward} টাকা")
+    except ValueError:
+        await update.message.reply_text("⚠️ ফরম্যাট ভুল হয়েছে! আবার চেষ্টা করুন।\nফরম্যাট: `টাইটেল || বিবরণ || টাকা || লিংক`")
+        return ASK_ADMIN_ADD_TASK_DATA
+    return ConversationHandler.END
+
+
+async def adm_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
+    await update.callback_query.edit_message_text("🔒 এডমিন প্যানেল বন্ধ করা হয়েছে।")
+    return ConversationHandler.END
+
+
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
@@ -537,9 +711,32 @@ def main():
         per_message=False,
     )
 
+    admin_conv = ConversationHandler(
+        entry_points=[
+            CommandHandler("admin", admin_menu),
+            CallbackQueryHandler(adm_check_user_start, pattern="^adm_check_user$"),
+            CallbackQueryHandler(adm_change_bal_start, pattern="^adm_change_bal$"),
+            CallbackQueryHandler(adm_broadcast_start, pattern="^adm_broadcast$"),
+            CallbackQueryHandler(adm_add_task_start, pattern="^adm_add_task$"),
+        ],
+        states={
+            ASK_ADMIN_CHECK_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_check_user_received)],
+            ASK_ADMIN_CHANGE_BAL_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_change_bal_id_received)],
+            ASK_ADMIN_CHANGE_BAL_AMT: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_change_bal_amt_received)],
+            ASK_ADMIN_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_broadcast_received)],
+            ASK_ADMIN_ADD_TASK_DATA: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_add_task_received)],
+        },
+        fallbacks=[
+            CallbackQueryHandler(adm_close, pattern="^adm_close$"),
+            CommandHandler("admin", admin_menu)
+        ],
+        per_message=False,
+    )
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(withdraw_conv)
     app.add_handler(task_conv)
+    app.add_handler(admin_conv)
 
     app.add_handler(CallbackQueryHandler(show_main_menu, pattern="^menu$"))
     app.add_handler(CallbackQueryHandler(show_balance, pattern="^balance$"))
@@ -549,6 +746,7 @@ def main():
     app.add_handler(CallbackQueryHandler(view_single_task, pattern="^view_task_"))
     app.add_handler(CallbackQueryHandler(admin_handle_task, pattern="^tk_(approve|reject)_"))
     app.add_handler(CallbackQueryHandler(admin_handle_withdrawal, pattern="^wd_(approve|reject)_"))
+    app.add_handler(CallbackQueryHandler(adm_close, pattern="^adm_close$"))
 
     app.add_handler(MessageHandler(filters.ChatType.CHANNEL & filters.TEXT, channel_task_adder))
 
@@ -558,4 +756,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
