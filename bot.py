@@ -16,7 +16,7 @@ TASK_REWARD = 5  # টাস্ক কমপ্লিট করলে ইউজ�
 
 MIN_WITHDRAW = 20
 ADMIN_ID = 8012544346
-CHANNEL_ID = -1004375418813  # আপনার দেওয়া চ্যানেলের আইডি
+CHANNEL_ID = -1004375418813  # 📢 আপনার দেওয়া চ্যানেল আইডি
 
 WITHDRAW_METHODS = ["bKash", "Nagad", "Rocket"]
 
@@ -192,7 +192,7 @@ async def task_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 মেনু", callback_data="menu")]])
     )
 
-    # অ্যাডমিন প্যানেলে ফটোসহ নোটিফিকেশন পাঠানো
+    # 📢 স্ক্রিনশট সরাসরি আপনার চ্যানেলে পাঠানোর জন্য পরিবর্তন করা হয়েছে
     admin_keyboard = [[
         InlineKeyboardButton("✅ এপ্রুভ টাস্ক", callback_data=f"tk_approve_{result}"),
         InlineKeyboardButton("❌ রিজেক্ট টাস্ক", callback_data=f"tk_reject_{result}")
@@ -200,25 +200,27 @@ async def task_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     try:
         await context.bot.send_photo(
-            chat_id=ADMIN_ID,
+            chat_id=CHANNEL_ID,  # এখানে ADMIN_ID পরিবর্তন করে CHANNEL_ID করা হয়েছে
             photo=photo_file_id,
-            caption=f"🎯 *নতুন টাস্ক সাবমিশন!*\n\n👤 ইউজার: {user.first_name} (`{user.id}`)\n💰 বোনাস: {TASK_REWARD} টাকা",
+            caption=f"🎯 *নতুন টাস্ক সাবমিশন!*\n\n👤 ইউজার: {user.first_name} (`{user.id}`)\n💰 বোনাস: {TASK_REWARD} টাকা\nStatus: ⏳ Pending",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(admin_keyboard)
         )
     except Exception as e:
-        logging.error(f"Admin task notify failed: {e}")
+        logging.error(f"Channel task notify failed: {e}")
         
     return ConversationHandler.END
 
 
-# ---------------- 🛠️ ADMIN APPROVE / REJECT FOR TASK ----------------
+# ---------------- 🛠️ CHANNEL/ADMIN APPROVE FOR TASK ----------------
 
 async def admin_handle_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
+    # চ্যানেল থেকে যে কেউই বাটনে চাপ দিক না কেন, শুধুমাত্র ADMIN_ID চেক করবে
     if query.from_user.id != ADMIN_ID:
+        await query.answer("⛔ আপনি এই বটের মূল এডমিন নন!", show_alert=True)
         return
 
     is_approve = query.data.startswith("tk_approve_")
@@ -228,7 +230,7 @@ async def admin_handle_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         res = db.approve_task_submission(sub_id)
         if res:
             u_id, reward, t_id = res
-            await query.edit_message_caption(caption="✅ টাস্কটি এপ্রুভ করা হয়েছে এবং ইউজারকে টাকা দেওয়া হয়েছে।")
+            await query.edit_message_caption(caption="✅ এই টাস্কটি এপ্রুভ করা হয়েছে।")
             try:
                 await context.bot.send_message(u_id, f"🎉 আপনার পাঠানো স্ক্রিনশটটি এপ্রুভ হয়েছে!\n+{reward} টাকা ব্যালেন্সে যোগ হয়েছে।")
             except: pass
@@ -238,7 +240,7 @@ async def admin_handle_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         res = db.reject_task_submission(sub_id)
         if res:
             u_id, t_id = res
-            await query.edit_message_caption(caption="❌ টাস্কটি রিজেক্ট করা হয়েছে।")
+            await query.edit_message_caption(caption="❌ এই টাস্কটি রিজেক্ট করা হয়েছে।")
             try:
                 await context.bot.send_message(u_id, "❌ আপনার পাঠানো টাস্ক স্ক্রিনশটটি বাতিল (Reject) করা হয়েছে। সঠিক নিয়মে আবার চেষ্টা করুন।")
             except: pass
@@ -368,7 +370,6 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-    # 📢 চ্যানেলে নতুন উইথড্র রিকোয়েস্টের নোটিফিকেশন পাঠানো
     try:
         channel_text = (
             f"🔔 *নতুন উইথড্র রিকোয়েস্ট!*\n"
@@ -384,7 +385,6 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
     except Exception as e:
         logging.error(f"Channel notify failed: {e}")
 
-    # অ্যাডমিনকে নোটিফাই করা
     admin_keyboard = [[
         InlineKeyboardButton("✅ এপ্রুভ", callback_data=f"wd_approve_{wd_id}"),
         InlineKeyboardButton("❌ রিজেক্ট", callback_data=f"wd_reject_{wd_id}"),
@@ -482,7 +482,6 @@ def main():
         per_message=False,
     )
 
-    # 📸 স্ক্রিনশটের জন্য নতুন কনভারসেশন হ্যান্ডলার 
     task_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(submit_proof_start, pattern="^submit_proof_start$")],
         states={
