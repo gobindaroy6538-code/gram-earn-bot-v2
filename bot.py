@@ -12,17 +12,17 @@ logging.basicConfig(level=logging.INFO)
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 REFERRAL_BONUS = 5
 DAILY_BONUS = 2
+TASK_REWARD = 5  # টাস্ক কমপ্লিট করলে ইউজার যত টাকা পাবে
 
 MIN_WITHDRAW = 20
 ADMIN_ID = 8012544346
-
-# 📢 এখানে আপনার চ্যানেলের আইডি দিন (যেমন: "@MyChannelUsername" অথবা ID "-1004375418813")
-CHANNEL_ID = "-1004375418813" 
+CHANNEL_ID = -1004375418813  # আপনার দেওয়া চ্যানেলের আইডি
 
 WITHDRAW_METHODS = ["bKash", "Nagad", "Rocket"]
 
-# Conversation states
+# Conversation States
 ASK_METHOD, ASK_NUMBER, ASK_AMOUNT = range(3)
+ASK_TASK_PROOF = 4  # স্ক্রিনশট নেওয়ার জন্য স্টেট
 
 db = Database()
 
@@ -60,8 +60,9 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("💼 আমার ব্যালেন্স", callback_data="balance"),
          InlineKeyboardButton("👥 রেফার করুন", callback_data="referral")],
-        [InlineKeyboardButton("🎁 ডেইলি বোনাস", callback_data="daily_bonus"),
+        [InlineKeyboardButton("🎁 DAILY BONUS", callback_data="daily_bonus"),
          InlineKeyboardButton("💵 উইথড্র", callback_data="withdraw_start")],
+        [InlineKeyboardButton("🎯 টাস্ক করুন", callback_data="task_menu")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -136,6 +137,113 @@ async def daily_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [[InlineKeyboardButton("🏠 মেনু", callback_data="menu")]]
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+# ---------------- 🎯 SCREENSHOT TASK SYSTEM ----------------
+
+async def show_task_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    text = (
+        f"🎯 *ইউটিউব সাবস্ক্রাইব টাস্ক*\n\n"
+        f"📌 *কাজ:* নিচের লিংকে গিয়ে চ্যানেলটি সাবস্ক্রাইব করুন এবং একটি স্ক্রিনশট নিন।\n\n"
+        f"💰 বোনাস: *{TASK_REWARD} টাকা*\n\n"
+        f"👇 নিচে 'স্ক্রিনশট জমা দিন' বাটনে ক্লিক করে প্রুফ পাঠান।"
+    )
+    keyboard = [
+        [InlineKeyboardButton("🔗 চ্যানেলে যান", url="https://youtube.com/@yourchannel")],
+        [InlineKeyboardButton("📤 স্ক্রিনশট জমা দিন", callback_data="submit_proof_start")],
+        [InlineKeyboardButton("🏠 মেনু", callback_data="menu")]
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+async def submit_proof_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if db.has_pending_task(query.from_user.id, "task_1"):
+        await query.edit_message_text(
+            "⚠️ আপনার একটি প্রুফ অলরেডি অ্যাডমিন রিভিউতে আছে। ধৈর্য ধরুন।", 
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 মেনু", callback_data="menu")]])
+        )
+        return ConversationHandler.END
+
+    await query.edit_message_text("📸 এখন আপনার কাজের *স্ক্রিনশটটি (Photo)* এখানে পাঠিয়ে দিন:")
+    return ASK_TASK_PROOF
+
+
+async def task_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    photo_file_id = update.message.photo[-1].file_id
+    
+    success, result = db.submit_task_proof(user.id, "task_1", photo_file_id, TASK_REWARD)
+    
+    if not success:
+        if result == "approved":
+            await update.message.reply_text("⚠️ আপনি এই টাস্কটি ইতিমধ্যেই সম্পন্ন করেছেন।")
+        else:
+            await update.message.reply_text("⚠️ আপনার প্রুফ ইতিমধ্যেই পেন্ডিং লিস্টে আছে।")
+        return ConversationHandler.END
+
+    await update.message.reply_text(
+        "✅ আপনার স্ক্রিনশট জমা হয়েছে! অ্যাডমিন চেক করে ব্যালেন্স যোগ করে দেবে।",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 মেনু", callback_data="menu")]])
+    )
+
+    # অ্যাডমিন প্যানেলে ফটোসহ নোটিফিকেশন পাঠানো
+    admin_keyboard = [[
+        InlineKeyboardButton("✅ এপ্রুভ টাস্ক", callback_data=f"tk_approve_{result}"),
+        InlineKeyboardButton("❌ রিজেক্ট টাস্ক", callback_data=f"tk_reject_{result}")
+    ]]
+    
+    try:
+        await context.bot.send_photo(
+            chat_id=ADMIN_ID,
+            photo=photo_file_id,
+            caption=f"🎯 *নতুন টাস্ক সাবমিশন!*\n\n👤 ইউজার: {user.first_name} (`{user.id}`)\n💰 বোনাস: {TASK_REWARD} টাকা",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(admin_keyboard)
+        )
+    except Exception as e:
+        logging.error(f"Admin task notify failed: {e}")
+        
+    return ConversationHandler.END
+
+
+# ---------------- 🛠️ ADMIN APPROVE / REJECT FOR TASK ----------------
+
+async def admin_handle_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.from_user.id != ADMIN_ID:
+        return
+
+    is_approve = query.data.startswith("tk_approve_")
+    sub_id = int(query.data.replace("tk_approve_", "") if is_approve else query.data.replace("tk_reject_", ""))
+
+    if is_approve:
+        res = db.approve_task_submission(sub_id)
+        if res:
+            u_id, reward, t_id = res
+            await query.edit_message_caption(caption="✅ টাস্কটি এপ্রুভ করা হয়েছে এবং ইউজারকে টাকা দেওয়া হয়েছে।")
+            try:
+                await context.bot.send_message(u_id, f"🎉 আপনার পাঠানো স্ক্রিনশটটি এপ্রুভ হয়েছে!\n+{reward} টাকা ব্যালেন্সে যোগ হয়েছে।")
+            except: pass
+        else:
+            await query.edit_message_caption(caption="⚠️ ইতিমধ্যে অ্যাকশন নেওয়া হয়েছে বা ডাটা পাওয়া যায়নি।")
+    else:
+        res = db.reject_task_submission(sub_id)
+        if res:
+            u_id, t_id = res
+            await query.edit_message_caption(caption="❌ টাস্কটি রিজেক্ট করা হয়েছে।")
+            try:
+                await context.bot.send_message(u_id, "❌ আপনার পাঠানো টাস্ক স্ক্রিনশটটি বাতিল (Reject) করা হয়েছে। সঠিক নিয়মে আবার চেষ্টা করুন।")
+            except: pass
+        else:
+            await query.edit_message_caption(caption="⚠️ ইতিমধ্যে অ্যাকশন নেওয়া হয়েছে।")
 
 
 # ---------------- Withdraw Conversation ----------------
@@ -260,24 +368,19 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-    # 📢 চ্যানেলে নতুন উইথড্র রিকোয়েস্টের নোটিফিকেশন পাঠানো (যোগ করা হয়েছে)
-    user = update.effective_user
+    # 📢 চ্যানেলে নতুন উইথড্র রিকোয়েস্টের নোটিফিকেশন পাঠানো
     try:
         channel_text = (
             f"🔔 *নতুন উইথড্র রিকোয়েস্ট!*\n"
             f"━━━━━━━━━━━━━━━━━━\n"
-            f"👤 ইউজার: {user.first_name}\n"
+            f"👤 ইউজার: {update.effective_user.first_name}\n"
             f"💵 পরিমাণ: *{amount:.2f} টাকা*\n"
             f"📱 মেথড: *{method}*\n"
             f"⏰ স্ট্যাটাস: ⏳ Pending (পেন্ডিং)\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"🤖 Bot: @{(await context.bot.get_me()).username}"
         )
-        await context.bot.send_message(
-            chat_id=CHANNEL_ID,
-            text=channel_text,
-            parse_mode="Markdown"
-        )
+        await context.bot.send_message(chat_id=CHANNEL_ID, text=channel_text, parse_mode="Markdown")
     except Exception as e:
         logging.error(f"Channel notify failed: {e}")
 
@@ -290,8 +393,8 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
         await context.bot.send_message(
             ADMIN_ID,
             f"🔔 *নতুন উইথড্র রিকোয়েস্ট* #{wd_id}\n\n"
-            f"👤 ইউজার: {user.first_name} (@{user.username or 'নাই'})\n"
-            f"🆔 ID: `{user.id}`\n"
+            f"👤 ইউজার: {update.effective_user.first_name} (@{update.effective_user.username or 'নাই'})\n"
+            f"🆔 ID: `{update.effective_user.id}`\n"
             f"💵 পরিমাণ: {amount:.2f} টাকা\n"
             f"📱 মেথড: {method}\n"
             f"🔢 নাম্বার: {number}",
@@ -307,13 +410,12 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
 
 async def withdraw_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    if query:
+        await query.answer()
     context.user_data.clear()
     await show_main_menu(update, context)
     return ConversationHandler.END
 
-
-# ---------------- Admin Approve / Reject ----------------
 
 async def admin_handle_withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -363,29 +465,6 @@ async def admin_handle_withdrawal(update: Update, context: ContextTypes.DEFAULT_
         logging.error(f"User notify failed: {e}")
 
 
-async def pending_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
-    pending = db.get_pending_withdrawals()
-    if not pending:
-        await update.message.reply_text("✅ কোনো পেন্ডিং উইথড্র রিকোয়েস্ট নেই।")
-        return
-
-    for wd in pending:
-        keyboard = [[
-            InlineKeyboardButton("✅ এপ্রুভ", callback_data=f"wd_approve_{wd['id']}"),
-            InlineKeyboardButton("❌ রিজেক্ট", callback_data=f"wd_reject_{wd['id']}"),
-        ]]
-        await update.message.reply_text(
-            f"🔔 রিকোয়েস্ট #{wd['id']}\n"
-            f"👤 User ID: `{wd['user_id']}`\n"
-            f"💵 {wd['amount']:.2f} টাকা — {wd['method']} ({wd['account_no']})\n"
-            f"🕒 {wd['requested_at']}",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
@@ -403,13 +482,25 @@ def main():
         per_message=False,
     )
 
+    # 📸 স্ক্রিনশটের জন্য নতুন কনভারসেশন হ্যান্ডলার 
+    task_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(submit_proof_start, pattern="^submit_proof_start$")],
+        states={
+            ASK_TASK_PROOF: [MessageHandler(filters.PHOTO, task_proof_received)],
+        },
+        fallbacks=[CallbackQueryHandler(withdraw_cancel, pattern="^menu$")],
+        per_message=False,
+    )
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("pending", pending_list))
     app.add_handler(withdraw_conv)
+    app.add_handler(task_conv)
     app.add_handler(CallbackQueryHandler(show_main_menu, pattern="^menu$"))
     app.add_handler(CallbackQueryHandler(show_balance, pattern="^balance$"))
     app.add_handler(CallbackQueryHandler(show_referral, pattern="^referral$"))
     app.add_handler(CallbackQueryHandler(daily_bonus, pattern="^daily_bonus$"))
+    app.add_handler(CallbackQueryHandler(show_task_menu, pattern="^task_menu$"))
+    app.add_handler(CallbackQueryHandler(admin_handle_task, pattern="^tk_(approve|reject)_"))
     app.add_handler(CallbackQueryHandler(admin_handle_withdrawal, pattern="^wd_(approve|reject)_"))
 
     print("✅ বট চালু হয়েছে...")
