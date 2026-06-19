@@ -776,32 +776,38 @@ async def adm_add_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.callback_query.answer()
     await update.callback_query.edit_message_text(
         "🎯 *নতুন টাস্ক যোগ করার সঠিক নিয়ম*\n\n"
-        "নিচের ফরম্যাটে তথ্যটি একসাথে লিখে পাঠান (মাঝখানে `||` চিহ্ন ব্যবহার করুন):\n\n"
-        "`টাইটেল || কাজের বিবরণ || টাকা || লিংক` \n\n"
+        "নিচের তথ্যের মতো করে প্রতি লাইনে (Enter চেপে) একটি করে তথ্য লিখে পাঠান:\n\n"
+        "১ম লাইন: টাস্ক টাইটেল\n"
+        "২য় লাইন: কাজের বিবরণ\n"
+        "৩য় লাইন: টাকার পরিমাণ (শুধু সংখ্যা)\n"
+        "৪র্থ লাইন: কাজের লিংক\n\n"
         "*উদাহরণ:*\n"
-        "`ইউটিউব সাবস্ক্রাইব || চ্যানেলটি সাবস্ক্রাইব করে স্ক্রিনশট দিন || 5.00 || https://youtube.com`",
-        parse_mode="Markdown"
+        "ইউটিউব সাবস্ক্রাইব\n"
+        "চ্যানেল সাবস্ক্রাইব করে স্ক্রিনশট দিন\n"
+        "5.00\n"
+        "https://youtube.com",
     )
     return ASK_ADMIN_ADD_TASK_DATA
 
 
 async def adm_add_task_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        parts = [p.strip() for p in update.message.text.split("||")]
+        # মেসেজকে প্রতি লাইনে ভাগ করা হচ্ছে
+        lines = [line.strip() for line in update.message.text.split("\n") if line.strip()]
         
-        if len(parts) < 4:
-            await update.message.reply_text("⚠️ ফরম্যাট ভুল হয়েছে! ৪টি তথ্যই থাকতে হবে এবং মাঝে || দিতে হবে। আবার চেষ্টা করুন:")
+        if len(lines) < 4:
+            await update.message.reply_text("⚠️ ফরম্যাট ভুল হয়েছে! ৪টি লাইনে ৪টি তথ্য থাকতে হবে। আবার চেষ্টা করুন:")
             return ASK_ADMIN_ADD_TASK_DATA
         
-        title = parts[0]
-        desc = parts[1]
-        reward = float(parts[2])
-        url = parts[3]
+        title = lines[0]
+        desc = lines[1]
+        reward = float(lines[2])
+        url = lines[3]
         
         db.add_new_task(title, desc, reward, url)
         await update.message.reply_text(f"✅ *নতুন টাস্ক সফলভাবে যুক্ত হয়েছে!*\n\n📌 টাইটেল: {title}\n💰 রিওয়ার্ড: {reward} টাকা")
     except ValueError:
-        await update.message.reply_text("⚠️ টাকার পরিমাণটি শুধু সংখ্যায় লিখুন (যেমন: 5.00 বা 3)। আবার চেষ্টা করুন:")
+        await update.message.reply_text("⚠️ ৩ নম্বর লাইনে টাকার পরিমাণটি শুধু সংখ্যায় লিখুন (যেমন: 5.00 বা 3)। আবার চেষ্টা করুন:")
         return ASK_ADMIN_ADD_TASK_DATA
     except Exception as e:
         logger.error(f"Task add error: {e}")
