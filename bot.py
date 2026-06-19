@@ -29,40 +29,73 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-    text = (
-        "👋 স্বাগতম *Gram Earn Bot* এ!\n\n"
-        "🎉 আপনি নতুন ইউজার হিসেবে যোগ দিয়েছেন।\n\n" if is_new else "👋 আবার স্বাগতম!\n\n"
-    )
-    text += "এখানে টাস্ক করে আয় করতে পারবেন। শীঘ্রই আরো ফিচার আসছে!"
+    await show_main_menu(update, context)
 
-    keyboard = [[InlineKeyboardButton("👥 রেফার করুন", callback_data="referral")]]
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = db.get_user(user_id)
+    balance = user["balance"] if user else 0
+
+    text = (
+        f"👋 স্বাগতম *Gram Earn Bot* এ!\n\n"
+        f"💰 আপনার ব্যালেন্স: *{balance:.2f} টাকা*\n\n"
+        f"টাস্ক করুন, টাকা আয় করুন!"
+    )
+    keyboard = [
+        [InlineKeyboardButton("💼 আমার ব্যালেন্স", callback_data="balance"),
+         InlineKeyboardButton("👥 রেফার করুন", callback_data="referral")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+
+
+async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    user = db.get_user(user_id)
+    referral_count = db.get_referral_count(user_id)
+
+    text = (
+        f"💼 *আমার অ্যাকাউন্ট*\n\n"
+        f"👤 নাম: {user['name']}\n"
+        f"💰 ব্যালেন্স: *{user['balance']:.2f} টাকা*\n"
+        f"👥 রেফারেল: {referral_count}জন\n"
+        f"📅 যোগ দিয়েছেন: {user['joined_date']}"
+    )
+    keyboard = [[InlineKeyboardButton("🏠 মেনু", callback_data="menu")]]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def show_referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    user = db.get_user(user_id)
     bot_username = (await context.bot.get_me()).username
     link = f"https://t.me/{bot_username}?start={user_id}"
     count = db.get_referral_count(user_id)
-    balance = user["balance"] if user else 0
 
     text = (
         f"👥 *রেফারেল প্রোগ্রাম*\n\n"
         f"প্রতি রেফারেলে: *{REFERRAL_BONUS} টাকা*\n"
-        f"আপনার রেফারেল: *{count}জন*\n"
-        f"আপনার ব্যালেন্স: *{balance:.2f} টাকা*\n\n"
+        f"আপনার রেফারেল: *{count}জন*\n\n"
         f"আপনার লিংক:\n`{link}`\n\n"
         f"এই লিংক বন্ধুদের পাঠান!"
     )
-    await query.edit_message_text(text, parse_mode="Markdown")
+    keyboard = [[InlineKeyboardButton("🏠 মেনু", callback_data="menu")]]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(show_main_menu, pattern="^menu$"))
+    app.add_handler(CallbackQueryHandler(show_balance, pattern="^balance$"))
     app.add_handler(CallbackQueryHandler(show_referral, pattern="^referral$"))
     print("✅ বট চালু হয়েছে...")
     app.run_polling()
