@@ -19,7 +19,7 @@ ADMIN_ID = 8012544346
 
 # --- FORCE JOIN CONFIGURATION ---
 FORCE_CHANNELS = [
-    -1004462605202,  # আপনার নতুন চ্যানেল আইডি
+    -1004462605202,  # আপনার চ্যানেল আইডি
 ]
 CHANNEL_LINK = "https://t.me/gramearnbotV2"  # চ্যানেলের লিংক
 
@@ -32,12 +32,14 @@ WITHDRAW_METHODS = ["bKash", "Nagad", "Rocket"]
 ASK_METHOD, ASK_NUMBER, ASK_AMOUNT = range(3)
 ASK_TASK_PROOF = 4
 
-# এডমিন প্যানেল স্টেট
+# ایڈمین پنےل اسٹیٹ
 ASK_ADMIN_CHECK_USER = 5
 ASK_ADMIN_CHANGE_BAL_ID = 6
 ASK_ADMIN_CHANGE_BAL_AMT = 7
 ASK_ADMIN_BROADCAST = 8
 ASK_ADMIN_ADD_TASK_DATA = 9
+ASK_ADMIN_BAN_USER = 10      # নতুন স্টেট
+ASK_ADMIN_UNBAN_USER = 11    # নতুন স্টেট
 
 db = Database()
 
@@ -57,6 +59,12 @@ async def is_user_joined_all(user_id: int, context: ContextTypes.DEFAULT_TYPE) -
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    
+    # 🚫 ১ম চেক: ইউজার ব্যান কিনা
+    if db.is_user_banned(user.id):
+        await update.message.reply_text("❌ দুঃখিত, আপনার অ্যাকাউন্টটি ব্যান করা হয়েছে। আপনি এই বট ব্যবহার করতে পারবেন না।")
+        return
+
     args = context.args
     referrer_id = int(args[0]) if args and args[0].isdigit() and int(args[0]) != user.id else None
 
@@ -104,6 +112,11 @@ async def check_joined_callback(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     user_id = query.from_user.id
     
+    # ব্যানিং চেক
+    if db.is_user_banned(user_id):
+        await query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
+        return
+
     if await is_user_joined_all(user_id, context):
         await query.answer("🎉 ধন্যবাদ! আপনি সফলভাবে জয়েন করেছেন।", show_alert=True)
         await show_main_menu(update, context)
@@ -114,6 +127,14 @@ async def check_joined_callback(update: Update, context: ContextTypes.DEFAULT_TY
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
+    # 🚫 ব্যানিং চেক
+    if db.is_user_banned(user_id):
+        if update.callback_query:
+            await update.callback_query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
+        else:
+            await update.message.reply_text("❌ আপনার অ্যাকাউন্টটি ব্যানড!")
+        return
+
     # মেনু খোলার সময়ও চেক করবে ইউজার চ্যানেল লিভ নিয়েছে কিনা
     if not await is_user_joined_all(user_id, context):
         await show_force_join_msg(update, context)
@@ -144,8 +165,13 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
+    
+    if db.is_user_banned(user_id):
+        await query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
+        return
+
+    await query.answer()
     user = db.get_user(user_id)
     referral_count = db.get_referral_count(user_id)
 
@@ -162,8 +188,13 @@ async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
+    
+    if db.is_user_banned(user_id):
+        await query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
+        return
+
+    await query.answer()
     bot_username = (await context.bot.get_me()).username
     link = f"https://t.me/{bot_username}?start={user_id}"
     count = db.get_referral_count(user_id)
@@ -181,14 +212,18 @@ async def show_referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def daily_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
+    
+    if db.is_user_banned(user_id):
+        await query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
+        return
 
+    await query.answer()
     success, info = db.claim_daily_bonus(user_id, DAILY_BONUS)
 
     if success:
         text = (
-            f"🎁 *데일리 বোনাস পেয়েছেন!*\n\n"
+            f"🎁 *ডেইলি বোনাস পেয়েছেন!*\n\n"
             f"+{DAILY_BONUS} টাকা যুক্ত হয়েছে।\n"
             f"💰 নতুন ব্যালেন্স: *{info:.2f} টাকা*\n\n"
             f"আবার 24 ঘণ্টা পর ক্লেইম করতে পারবেন।"
@@ -213,6 +248,12 @@ async def daily_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_task_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    user_id = query.from_user.id
+    
+    if db.is_user_banned(user_id):
+        await query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
+        return
+
     await query.answer()
     tasks = db.get_all_tasks()
 
@@ -232,6 +273,10 @@ async def show_task_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def view_single_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if db.is_user_banned(query.from_user.id):
+        await query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
+        return
+
     await query.answer()
     task_id = int(query.data.replace("view_task_", ""))
     task = db.get_task(task_id)
@@ -244,7 +289,7 @@ async def view_single_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"*{task['title']}*\n\n"
         f"📌 *কাজ:* {task['desc']}\n\n"
         f"💰 বোনাস: *{task['reward']} টাকা*\n\n"
-        f"👇 নিচে 'স্ক্রিনশট জমা দিন' বাটনে ক্লিক করে প্রুফ পাঠান।"
+        f"👇 নিচে 'স্ক্রিনশট জমা দিন' বাটনে ক্লিক করে প্রুф পাঠান।"
     )
     keyboard = [
         [InlineKeyboardButton("🔗 লিংকে যান", url=task["url"])],
@@ -256,11 +301,17 @@ async def view_single_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def submit_proof_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    user_id = query.from_user.id
+    
+    if db.is_user_banned(user_id):
+        await query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
+        return ConversationHandler.END
+
     await query.answer()
     task_id = int(query.data.replace("submit_proof_", ""))
     context.user_data["current_task_id"] = task_id
 
-    if db.has_pending_task(query.from_user.id, task_id):
+    if db.has_pending_task(user_id, task_id):
         await query.edit_message_text(
             "⚠️ আপনার এই কাজের একটি প্রুফ অলরেডি অ্যাডমিন রিভিউতে আছে।",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 মেনু", callback_data="menu")]])
@@ -273,6 +324,11 @@ async def submit_proof_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def task_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    
+    if db.is_user_banned(user.id):
+        await update.message.reply_text("❌ আপনার অ্যাকাউন্টটি ব্যানড!")
+        return ConversationHandler.END
+
     photo_file_id = update.message.photo[-1].file_id
     task_id = context.user_data.get("current_task_id")
 
@@ -287,7 +343,7 @@ async def task_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE
         if result == "approved":
             await update.message.reply_text("⚠️ আপনি এই টাস্কটি ইতিমধ্যেই সম্পন্ন করেছেন।")
         else:
-            await update.message.reply_text("⚠️ আপনার প্রুফ ইতিমধ্যেই পেন্ডিং লিস্টে আছে।")
+            await update.message.reply_text("⚠️ Ihre প্রুফ ইতিমধ্যেই পেন্ডিং লিস্টে আছে।")
         return ConversationHandler.END
 
     await update.message.reply_text(
@@ -308,7 +364,6 @@ async def task_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(admin_keyboard)
         )
-        logger.info("✅ Task proof sent to channel successfully.")
     except Exception as e:
         logger.error(f"❌ Channel task notify failed: {e}")
 
@@ -377,6 +432,17 @@ async def withdraw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+
+    # 🚫 ১ম চেক: ইউজার ব্যান কিনা
+    if db.is_user_banned(user_id):
+        await query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
+        return ConversationHandler.END
+
+    # 🚨 ২য় চেক: উইথড্র দেওয়ার আগে চ্যানেল জয়েন আছে কিনা
+    if not await is_user_joined_all(user_id, context):
+        await show_force_join_msg(update, context)
+        return ConversationHandler.END
+
     user = db.get_user(user_id)
 
     if user is None:
@@ -503,19 +569,9 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
     )
 
     try:
-        sent = await context.bot.send_message(
-            chat_id=WITHDRAW_LOG_ID,
-            text=channel_text,
-            parse_mode="Markdown",
-            reply_markup=admin_keyboard
-        )
-        logger.info(f"✅ Withdraw notification sent successfully to {WITHDRAW_LOG_ID}, message_id={sent.message_id}")
+        await context.bot.send_message(chat_id=WITHDRAW_LOG_ID, text=channel_text, parse_mode="Markdown", reply_markup=admin_keyboard)
     except Exception as e:
-        logger.error(f"❌ FAILED to send withdraw notification to {WITHDRAW_LOG_ID}. Reason: {e}")
-        try:
-            await context.bot.send_message(ADMIN_ID, f"⚠️ চ্যানেলে পাঠাতে ব্যর্থ, তবে নতুন উইথড্র এসেছে:\n\n{channel_text}", parse_mode="Markdown", reply_markup=admin_keyboard)
-        except Exception as e2:
-            logger.error(f"❌ FAILED to send to admin DM too. Reason: {e2}")
+        logger.error(f"❌ FAILED to send withdraw notification: {e}")
 
     context.user_data.clear()
     return ConversationHandler.END
@@ -560,7 +616,7 @@ async def admin_handle_withdrawal(update: Update, context: ContextTypes.DEFAULT_
         db.reject_withdrawal(wd_id)
         status_text = "❌ *রিজেক্ট করা হয়েছে (টাকা ব্যালেন্সে ফেরত)*"
         user_msg = (
-            f"❌ *আপনার উইথড্র রিকোয়েস্ট রিজেক্ট হয়েছে।*\n\n"
+            f"❌ *আপনার উইথড্র রিকোয়েস্ট রিজেক্ট হয়েছে。*\n\n"
             f"💵 {wd['amount']:.2f} টাকা আপনার ব্যালেন্সে ফেরত দেওয়া হয়েছে।"
         )
 
@@ -594,7 +650,9 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🔍 ইউজার চেক করুন", callback_data="adm_check_user"),
          InlineKeyboardButton("💰 ব্যালেন্স পরিবর্তন", callback_data="adm_change_bal")],
-        [InlineKeyboardButton("📢 ব্রডকাস্ট (সবাইকে মেসেজ)", callback_data="adm_broadcast"),
+        [InlineKeyboardButton("🚫 ইউজার ব্যান করুন", callback_data="adm_ban_user"),
+         InlineKeyboardButton("✅ ইউজার আনব্যান", callback_data="adm_unban_user")],
+        [InlineKeyboardButton("📢 ব্রডকাস্ট নোটিশ", callback_data="adm_broadcast"),
          InlineKeyboardButton("🎯 নতুন টাস্ক যোগ করুন", callback_data="adm_add_task")],
         [InlineKeyboardButton("❌ প্যানেল বন্ধ করুন", callback_data="adm_close")]
     ]
@@ -622,9 +680,11 @@ async def adm_check_user_received(update: Update, context: ContextTypes.DEFAULT_
             return ConversationHandler.END
         
         ref_count = db.get_referral_count(target_id)
+        is_ban = "🚫 Banned" if db.is_user_banned(target_id) else "✅ Active"
         text = (
             f"👤 *ইউজার ইনফো: {user['name']}*\n\n"
             f"🆔 ID: `{target_id}`\n"
+            f"🚦 স্ট্যাটাস: *{is_ban}*\n"
             f"💰 ব্যালেন্স: {user['balance']:.2f} টাকা\n"
             f"👥 মোট রেফার: {ref_count} জন\n"
             f"📅 জয়েনিং ডেট: {user['joined_date']}"
@@ -675,6 +735,60 @@ async def adm_change_bal_amt_received(update: Update, context: ContextTypes.DEFA
     return ConversationHandler.END
 
 
+# --- নতুন ফিচার: ইউজার ব্যান ---
+async def adm_ban_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
+    await update.callback_query.edit_message_text("🚫 যে ইউজারকে *ব্যান* করতে চান তার User ID পাঠান:")
+    return ASK_ADMIN_BAN_USER
+
+async def adm_ban_user_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        target_id = int(update.message.text.strip())
+        if target_id == ADMIN_ID:
+            await update.message.reply_text("❌ আপনি নিজেকে ব্যান করতে পারবেন না!")
+            return ConversationHandler.END
+        
+        if not db.get_user(target_id):
+            await update.message.reply_text("❌ এই আইডি দিয়ে কোনো ইউজার পাওয়া যায়নি।")
+            return ConversationHandler.END
+            
+        db.ban_user(target_id)
+        await update.message.reply_text(f"✅ ইউজার `{target_id}` কে সফলভাবে ব্যান করা হয়েছে।")
+        try:
+            await context.bot.send_message(target_id, "🚫 আপনার অ্যাকাউন্টটি অ্যাডমিন কর্তৃক ব্যান করা হয়েছে!")
+        except Exception:
+            pass
+    except ValueError:
+        await update.message.reply_text("⚠️ সঠিক আইডি দিন (শুধু সংখ্যা):")
+        return ASK_ADMIN_BAN_USER
+    return ConversationHandler.END
+
+
+# --- নতুন ফিচার: ইউজার আনব্যান ---
+async def adm_unban_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
+    await update.callback_query.edit_message_text("✅ যে ইউজারকে *আনব্যান* করতে চান তার User ID পাঠান:")
+    return ASK_ADMIN_UNBAN_USER
+
+async def adm_unban_user_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        target_id = int(update.message.text.strip())
+        if not db.get_user(target_id):
+            await update.message.reply_text("❌ এই আইডি দিয়ে কোনো ইউজার পাওয়া যায়নি।")
+            return ConversationHandler.END
+            
+        db.unban_user(target_id)
+        await update.message.reply_text(f"✅ ইউজার `{target_id}` কে সফলভাবে আনব্যান করা হয়েছে।")
+        try:
+            await context.bot.send_message(target_id, "🎉 আপনার অ্যাকাউন্টটি আনব্যান করা হয়েছে। এখন আপনি বটের সব কাজ করতে পারবেন।")
+        except Exception:
+            pass
+    except ValueError:
+        await update.message.reply_text("⚠️ সঠিক আইডি দিন (শুধু সংখ্যা):")
+        return ASK_ADMIN_UNBAN_USER
+    return ConversationHandler.END
+
+
 async def adm_broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await update.callback_query.edit_message_text("📢 সব ইউজারের কাছে যে নোটিফিকেশনটি পাঠাতে চান তা লিখে পাঠান:")
@@ -686,7 +800,7 @@ async def adm_broadcast_received(update: Update, context: ContextTypes.DEFAULT_T
     try:
         users = db.get_all_users()
     except AttributeError:
-        await update.message.reply_text("⚠️ ডাটাবেজে `get_all_users()` মেথডটি তৈরি করা নেই।")
+        await update.message.reply_text("⚠️ ডাটাবেজে সমস্যা হয়েছে।")
         return ConversationHandler.END
 
     if not users:
@@ -777,6 +891,8 @@ def main():
             CommandHandler("admin", admin_menu),
             CallbackQueryHandler(adm_check_user_start, pattern="^adm_check_user$"),
             CallbackQueryHandler(adm_change_bal_start, pattern="^adm_change_bal$"),
+            CallbackQueryHandler(adm_ban_user_start, pattern="^adm_ban_user$"),
+            CallbackQueryHandler(adm_unban_user_start, pattern="^adm_unban_user$"),
             CallbackQueryHandler(adm_broadcast_start, pattern="^adm_broadcast$"),
             CallbackQueryHandler(adm_add_task_start, pattern="^adm_add_task$"),
         ],
@@ -784,6 +900,8 @@ def main():
             ASK_ADMIN_CHECK_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_check_user_received)],
             ASK_ADMIN_CHANGE_BAL_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_change_bal_id_received)],
             ASK_ADMIN_CHANGE_BAL_AMT: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_change_bal_amt_received)],
+            ASK_ADMIN_BAN_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_ban_user_received)],
+            ASK_ADMIN_UNBAN_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_unban_user_received)],
             ASK_ADMIN_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_broadcast_received)],
             ASK_ADMIN_ADD_TASK_DATA: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_add_task_received)],
         },
@@ -799,7 +917,7 @@ def main():
     app.add_handler(task_conv)
     app.add_handler(admin_conv)
 
-    app.add_handler(CallbackQueryHandler(check_joined_callback, pattern="^check_joined$")) # ফোর্সবটন হ্যান্ডলার
+    app.add_handler(CallbackQueryHandler(check_joined_callback, pattern="^check_joined$"))
     app.add_handler(CallbackQueryHandler(show_main_menu, pattern="^menu$"))
     app.add_handler(CallbackQueryHandler(show_balance, pattern="^balance$"))
     app.add_handler(CallbackQueryHandler(show_referral, pattern="^referral$"))
