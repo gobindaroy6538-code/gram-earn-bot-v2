@@ -2,258 +2,381 @@ import sqlite3
 from datetime import datetime, timedelta
 
 class Database:
-    def __init__(self, db_name="bot_database.db"):
-        self.conn = sqlite3.connect(db_name, check_same_thread=False)
-        self.create_tables()
+    def __init__(self, db_name="gram_earn.db"):
+        self.db_name = db_name
+        self.init_db()
 
-    def create_tables(self):
-        cursor = self.conn.cursor()
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            name TEXT,
-            username TEXT,
-            balance REAL DEFAULT 0.0,
-            referred_by INTEGER,
-            joined_date TEXT,
-            last_daily_bonus TEXT,
-            is_banned INTEGER DEFAULT 0
-        )
-        """)
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS withdrawals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            amount REAL,
-            method TEXT,
-            account_no TEXT,
-            photo_id TEXT,
-            status TEXT DEFAULT 'pending'
-        )
-        """)
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS tasks (
-            task_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT,
-            desc TEXT,
-            reward REAL,
-            url TEXT
-        )
-        """)
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS task_submissions (
-            sub_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            task_id INTEGER,
-            photo_id TEXT,
-            reward REAL,
-            status TEXT DEFAULT 'pending'
-        )
-        """)
-        self.conn.commit()
+    def _get_connection(self):
+        return sqlite3.connect(self.db_name)
 
-        try:
-            cursor.execute("SELECT is_banned FROM users LIMIT 1")
-        except sqlite3.OperationalError:
-            cursor.execute("ALTER TABLE users ADD COLUMN is_banned INTEGER DEFAULT 0")
-            self.conn.commit()
+    def init_db(self):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # ইউজার টেবিল
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                name TEXT,
+                username TEXT,
+                balance REAL DEFAULT 0.0,
+                referrer_id INTEGER,
+                joined_date TEXT,
+                last_daily_bonus TEXT,
+                is_banned INTEGER DEFAULT 0
+            )
+        """)
+        
+        # টাস্ক টেবিল
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                task_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT,
+                desc TEXT,
+                reward REAL,
+                url TEXT
+            )
+        """)
+        
+        # টাস্ক সাবমিশন বা প্রুফ টেবিল
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS task_submissions (
+                sub_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                task_id INTEGER,
+                photo_id TEXT,
+                reward REAL,
+                status TEXT DEFAULT 'pending'
+            )
+        """)
+        
+        # উইথড্র রিকোয়েস্ট টেবিল
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS withdrawals (
+                wd_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                amount REAL,
+                method TEXT,
+                account_no TEXT,
+                photo_id TEXT,
+                status TEXT DEFAULT 'pending',
+                date TEXT
+            )
+        """)
+        
+        conn.commit()
+        conn.close()
 
-        try:
-            cursor.execute("SELECT photo_id FROM withdrawals LIMIT 1")
-        except sqlite3.OperationalError:
-            cursor.execute("ALTER TABLE withdrawals ADD COLUMN photo_id TEXT")
-            self.conn.commit()
-
-    # ---------------- USER ----------------
+    # --- USER MANAGEMENT ---
+    
     def register_user(self, user_id, name, username, referrer_id=None):
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-        if cursor.fetchone():
-            return False
-        joined_date = datetime.now().strftime("%Y-%m-%d")
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+        user = cursor.fetchone()
+        
+        if user:
+            conn.close()
+            return False  # পুরাতন ইউজার
+            
+        joined_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cursor.execute(
-            "INSERT INTO users (user_id, name, username, referred_by, joined_date) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO users (user_id, name, username, referrer_id, joined_date) VALUES (?, ?, ?, ?, ?)",
             (user_id, name, username, referrer_id, joined_date)
         )
-        self.conn.commit()
-        return True
+        conn.commit()
+        conn.close()
+        return True  # নতুন ইউজার
 
     def get_user(self, user_id):
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "SELECT user_id, name, username, balance, referred_by, joined_date, last_daily_bonus FROM users WHERE user_id = ?",
-            (user_id,)
-        )
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id, name, username, balance, referrer_id, joined_date FROM users WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
+        conn.close()
         if row:
             return {
                 "user_id": row[0], "name": row[1], "username": row[2],
-                "balance": row[3], "referred_by": row[4],
-                "joined_date": row[5], "last_daily_bonus": row[6]
+                "balance": row[3], "referrer_id": row[4], "joined_date": row[5]
             }
         return None
 
     def get_all_users(self):
-        cursor = self.conn.cursor()
+        conn = self._get_connection()
+        cursor = conn.cursor()
         cursor.execute("SELECT user_id FROM users")
-        return [{"user_id": r[0]} for r in cursor.fetchall()]
+        rows = cursor.fetchall()
+        conn.close()
+        return [{"user_id": r[0]} for r in rows]
 
     def add_balance(self, user_id, amount):
-        cursor = self.conn.cursor()
+        conn = self._get_connection()
+        cursor = conn.cursor()
         cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
-        self.conn.commit()
+        conn.commit()
+        conn.close()
 
     def get_referral_count(self, user_id):
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM users WHERE referred_by = ?", (user_id,))
-        return cursor.fetchone()[0]
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(user_id) FROM users WHERE referrer_id = ?", (user_id,))
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count
 
     def claim_daily_bonus(self, user_id, bonus_amount):
-        user = self.get_user(user_id)
-        if not user:
-            return False, None
-        now = datetime.now()
-        if user["last_daily_bonus"]:
-            last_bonus_time = datetime.strptime(user["last_daily_bonus"], "%Y-%m-%d %H:%M:%S")
-            time_passed = now - last_bonus_time
-            if time_passed < timedelta(hours=24):
-                return False, timedelta(hours=24) - time_passed
-        cursor = self.conn.cursor()
-        now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-        cursor.execute(
-            "UPDATE users SET balance = balance + ?, last_daily_bonus = ? WHERE user_id = ?",
-            (bonus_amount, now_str, user_id)
-        )
-        self.conn.commit()
-        return True, user["balance"] + bonus_amount
-
-    # ---------------- BAN / UNBAN SYSTEM ----------------
-    def is_user_banned(self, user_id):
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT is_banned FROM users WHERE user_id = ?", (user_id,))
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT last_daily_bonus, balance FROM users WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
-        return row[0] == 1 if row else False
+        
+        if not row:
+            conn.close()
+            return False, None
+            
+        last_bonus_str, current_balance = row
+        now = datetime.now()
+        
+        if last_bonus_str:
+            last_bonus = datetime.strptime(last_bonus_str, "%Y-%m-%d %H:%M:%S")
+            time_passed = now - last_bonus
+            if time_passed < timedelta(hours=24):
+                time_left = timedelta(hours=24) - time_passed
+                conn.close()
+                return False, time_left
+                
+        new_balance = current_balance + bonus_amount
+        now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute("UPDATE users SET balance = ?, last_daily_bonus = ? WHERE user_id = ?", (new_balance, now_str, user_id))
+        conn.commit()
+        conn.close()
+        return True, new_balance
 
     def ban_user(self, user_id):
-        cursor = self.conn.cursor()
+        conn = self._get_connection()
+        cursor = conn.cursor()
         cursor.execute("UPDATE users SET is_banned = 1 WHERE user_id = ?", (user_id,))
-        self.conn.commit()
+        conn.commit()
+        conn.close()
 
     def unban_user(self, user_id):
-        cursor = self.conn.cursor()
+        conn = self._get_connection()
+        cursor = conn.cursor()
         cursor.execute("UPDATE users SET is_banned = 0 WHERE user_id = ?", (user_id,))
-        self.conn.commit()
+        conn.commit()
+        conn.close()
 
-    # ---------------- WITHDRAW ----------------
-    def request_withdrawal(self, user_id, amount, method, account_no, photo_id, min_withdraw):
-        user = self.get_user(user_id)
-        if not user:
-            return False, "account_not_found", None
-        if amount < min_withdraw:
-            return False, "below_minimum", None
-        if user["balance"] < amount:
-            return False, "insufficient_balance", None
-        if self.has_pending_withdrawal(user_id):
-            return False, "already_pending", None
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, user_id))
-            cursor.execute(
-                "INSERT INTO withdrawals (user_id, amount, method, account_no, photo_id, status) VALUES (?, ?, ?, ?, ?, 'pending')",
-                (user_id, amount, method, account_no, photo_id)
-            )
-            self.conn.commit()
-            return True, "success", cursor.lastrowid
-        except Exception as e:
-            self.conn.rollback()
-            print(f"Withdraw DB Error: {e}")
-            return False, "db_error", None
-
-    def has_pending_withdrawal(self, user_id):
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT 1 FROM withdrawals WHERE user_id = ? AND status = 'pending'", (user_id,))
-        return cursor.fetchone() is not None
-
-    def get_withdrawal(self, wd_id):
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT user_id, amount, method, account_no, status, photo_id FROM withdrawals WHERE id = ?", (wd_id,))
+    def is_user_banned(self, user_id):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT is_banned FROM users WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
-        if row:
-            return {"user_id": row[0], "amount": row[1], "method": row[2], "account_no": row[3], "status": row[4], "photo_id": row[5]}
-        return None
+        conn.close()
+        return row[0] == 1 if row else False
 
-    def approve_withdrawal(self, wd_id):
-        cursor = self.conn.cursor()
-        cursor.execute("UPDATE withdrawals SET status = 'approved' WHERE id = ?", (wd_id,))
-        self.conn.commit()
 
-    def reject_withdrawal(self, wd_id):
-        wd = self.get_withdrawal(wd_id)
-        if wd:
-            cursor = self.conn.cursor()
-            cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (wd["amount"], wd["user_id"]))
-            cursor.execute("UPDATE withdrawals SET status = 'rejected' WHERE id = ?", (wd_id,))
-            self.conn.commit()
-
-    # ---------------- TASK ----------------
+    # --- TASK SYSTEM ---
+    
     def add_new_task(self, title, desc, reward, url):
-        cursor = self.conn.cursor()
+        conn = self._get_connection()
+        cursor = conn.cursor()
         cursor.execute("INSERT INTO tasks (title, desc, reward, url) VALUES (?, ?, ?, ?)", (title, desc, reward, url))
-        self.conn.commit()
+        conn.commit()
+        conn.close()
 
     def get_all_tasks(self):
-        cursor = self.conn.cursor()
+        conn = self._get_connection()
+        cursor = conn.cursor()
         cursor.execute("SELECT task_id, title, desc, reward, url FROM tasks")
-        return [{"task_id": r[0], "title": r[1], "desc": r[2], "reward": r[3], "url": r[4]} for r in cursor.fetchall()]
+        rows = cursor.fetchall()
+        conn.close()
+        return [{"task_id": r[0], "title": r[1], "desc": r[2], "reward": r[3], "url": r[4]} for r in rows]
 
     def get_task(self, task_id):
-        cursor = self.conn.cursor()
+        conn = self._get_connection()
+        cursor = conn.cursor()
         cursor.execute("SELECT task_id, title, desc, reward, url FROM tasks WHERE task_id = ?", (task_id,))
-        row = cursor.fetchone()
-        if row:
-            return {"task_id": row[0], "title": row[1], "desc": row[2], "reward": row[3], "url": row[4]}
+        r = cursor.fetchone()
+        conn.close()
+        if r:
+            return {"task_id": r[0], "title": r[1], "desc": r[2], "reward": r[3], "url": r[4]}
         return None
 
     def has_pending_task(self, user_id, task_id):
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "SELECT 1 FROM task_submissions WHERE user_id = ? AND task_id = ? AND status = 'pending'",
-            (user_id, task_id)
-        )
-        return cursor.fetchone() is not None
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT sub_id FROM task_submissions WHERE user_id = ? AND task_id = ? AND status = 'pending'", (user_id, task_id))
+        row = cursor.fetchone()
+        conn.close()
+        return row is not None
 
     def submit_task_proof(self, user_id, task_id, photo_id, reward):
-        cursor = self.conn.cursor()
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # ইতিমধ্যে এপ্রুভ বা পেন্ডিং আছে কিনা চেক
         cursor.execute("SELECT status FROM task_submissions WHERE user_id = ? AND task_id = ?", (user_id, task_id))
         row = cursor.fetchone()
         if row:
-            return False, row[0]
+            if row[0] == "approved":
+                conn.close()
+                return False, "approved"
+            elif row[0] == "pending":
+                conn.close()
+                return False, "pending"
+                
         cursor.execute(
-            "INSERT INTO task_submissions (user_id, task_id, photo_id, reward, status) VALUES (?, ?, ?, ?, 'pending')",
+            "INSERT INTO task_submissions (user_id, task_id, photo_id, reward) VALUES (?, ?, ?, ?)",
             (user_id, task_id, photo_id, reward)
         )
-        self.conn.commit()
-        return True, cursor.lastrowid
+        sub_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return True, sub_id
 
     def approve_task_submission(self, sub_id):
-        cursor = self.conn.cursor()
+        conn = self._get_connection()
+        cursor = conn.cursor()
         cursor.execute("SELECT user_id, reward, task_id, status FROM task_submissions WHERE sub_id = ?", (sub_id,))
         row = cursor.fetchone()
-        if row and row[3] == 'pending':
-            user_id, reward, task_id = row[0], row[1], row[2]
-            cursor.execute("UPDATE task_submissions SET status = 'approved' WHERE sub_id = ?", (sub_id,))
-            cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (reward, user_id))
-            self.conn.commit()
-            return user_id, reward, task_id
-        return None
+        
+        if not row or row[3] != "pending":
+            conn.close()
+            return None
+            
+        user_id, reward, task_id, _ = row
+        cursor.execute("UPDATE task_submissions SET status = 'approved' WHERE sub_id = ?", (sub_id,))
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (reward, user_id))
+        conn.commit()
+        conn.close()
+        return user_id, reward, task_id
 
     def reject_task_submission(self, sub_id):
-        cursor = self.conn.cursor()
+        conn = self._get_connection()
+        cursor = conn.cursor()
         cursor.execute("SELECT user_id, task_id, status FROM task_submissions WHERE sub_id = ?", (sub_id,))
         row = cursor.fetchone()
-        if row and row[2] == 'pending':
-            user_id, task_id = row[0], row[1]
-            cursor.execute("UPDATE task_submissions SET status = 'rejected' WHERE sub_id = ?", (sub_id,))
-            self.conn.commit()
-            return user_id, task_id
+        
+        if not row or row[2] != "pending":
+            conn.close()
+            return None
+            
+        user_id, task_id, _ = row
+        cursor.execute("UPDATE task_submissions SET status = 'rejected' WHERE sub_id = ?", (sub_id,))
+        conn.commit()
+        conn.close()
+        return user_id, task_id
+
+
+    # --- WITHDRAW SYSTEM ---
+    
+    def has_pending_withdrawal(self, user_id):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT wd_id FROM withdrawals WHERE user_id = ? AND status = 'pending'", (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row is not None
+
+    def request_withdrawal(self, user_id, amount, method, account_no, photo_id, min_withdraw):
+        if amount < min_withdraw:
+            return False, "less_than_min", None
+            
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return False, "account_not_found", None
+            
+        balance = row[0]
+        if balance < amount:
+            conn.close()
+            return False, "insufficient_balance", None
+            
+        # অলরেডি পেন্ডিং চেক
+        cursor.execute("SELECT wd_id FROM withdrawals WHERE user_id = ? AND status = 'pending'", (user_id,))
+        if cursor.fetchone():
+            conn.close()
+            return False, "already_pending", None
+            
+        date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # ইউজার ব্যালেন্স ইনস্ট্যান্ট কেটে নেওয়া
+        cursor.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, user_id))
+        
+        cursor.execute(
+            "INSERT INTO withdrawals (user_id, amount, method, account_no, photo_id, date) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, amount, method, account_no, photo_id, date_str)
+        )
+        wd_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return True, "success", wd_id
+
+    def get_withdrawal(self, wd_id):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id, amount, method, account_no, status FROM withdrawals WHERE wd_id = ?", (wd_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return {"user_id": row[0], "amount": row[1], "method": row[2], "account_no": row[3], "status": row[4]}
         return None
+
+    def approve_withdrawal(self, wd_id):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE withdrawals SET status = 'approved' WHERE wd_id = ?", (wd_id,))
+        conn.commit()
+        conn.close()
+
+    def reject_withdrawal(self, wd_id):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id, amount, status FROM withdrawals WHERE wd_id = ?", (wd_id,))
+        row = cursor.fetchone()
+        if row and row[2] == "pending":
+            user_id, amount, _ = row
+            # রিজেক্ট হলে টাকা মেইন ব্যালেন্সে ফেরত দেওয়া হচ্ছে
+            cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+            cursor.execute("UPDATE withdrawals SET status = 'rejected' WHERE wd_id = ?", (wd_id,))
+            conn.commit()
+        conn.close()
+
+
+    # --- NEW FEATURE: LEADERBOARD SYSTEM ---
+    
+    def get_top_earners(self, limit=10):
+        """সর্বোচ্চ ব্যালেন্স থাকা টপ ইউজারদের তালিকা নিয়ে আসবে"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name, balance FROM users WHERE is_banned = 0 ORDER BY balance DESC LIMIT ?", 
+            (limit,)
+        )
+        result = cursor.fetchall()
+        conn.close()
+        return [{"name": r[0], "balance": r[1]} for r in result]
+
+    def get_top_referrers(self, limit=10):
+        """সবচেয়ে বেশি রেফার করা টop ইউজারদের তালিকা নিয়ে আসবে"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT u.name, COUNT(r.user_id) as ref_count 
+            FROM users u
+            LEFT JOIN users r ON u.user_id = r.referrer_id
+            WHERE u.is_banned = 0
+            GROUP BY u.user_id
+            ORDER BY ref_count DESC
+            LIMIT ?
+            """, 
+            (limit,)
+        )
+        result = cursor.fetchall()
+        conn.close()
+        return [{"name": r[0], "ref_count": r[1]} for r in result]
