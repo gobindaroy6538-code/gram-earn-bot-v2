@@ -25,11 +25,12 @@ CHANNEL_LINK = "https://t.me/gramearnbotV2"
 
 CHANNEL_ID = FORCE_CHANNELS[0] 
 WITHDRAW_LOG_ID = CHANNEL_ID  
+PAYMENT_GROUP_LINK = "https://t.me/payment920" # পেমেন্ট প্রুফ গ্রুপ লিংক
 
 WITHDRAW_METHODS = ["bKash", "Nagad", "Rocket"]
 
 # --- Conversation States ---
-ASK_METHOD, ASK_NUMBER, ASK_AMOUNT, ASK_WD_PHOTO = range(4)
+ASK_METHOD, ASK_NUMBER, ASK_AMOUNT = range(3)
 ASK_TASK_PROOF = 4
 
 # এডমিন প্যানেল স্টেট
@@ -413,7 +414,7 @@ async def admin_handle_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_caption(caption="⚠️ ইতিমধ্যে অ্যাকশন নেওয়া হয়েছে।")
 
 
-# ---------------- WITHDRAW ----------------
+# ---------------- WITHDRAW SYSTEM (UPDATED) ----------------
 
 async def withdraw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -481,6 +482,7 @@ async def withdraw_number_received(update: Update, context: ContextTypes.DEFAULT
 
 
 async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     text = update.message.text.strip()
     try:
         amount = float(text)
@@ -493,31 +495,16 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text(f"⚠️ মিনিমাম {MIN_WITHDRAW} টাকা উইথড্র করতে হবে। আবার লিখুন:")
         return ASK_AMOUNT
 
-    user = db.get_user(update.effective_user.id)
+    user = db.get_user(user_id)
     if user["balance"] < amount:
         await update.message.reply_text("⚠️ আপনার ব্যালেন্সে পর্যাপ্ত টাকা নেই। আবার লিখুন:")
         return ASK_AMOUNT
 
-    await update.message.reply_text("📸 উইথড্র করার প্রমাণ বা পেমেন্ট প্রুফ হিসেবে একটি স্ক্রিনশট/ছবি (Photo) পাঠান:")
-    return ASK_WD_PHOTO
-
-
-async def withdraw_photo_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if db.is_user_banned(user_id):
-        await update.message.reply_text("❌ আপনার অ্যাকাউন্টটি ব্যানড!")
-        return ConversationHandler.END
-
-    if not update.message.photo:
-        await update.message.reply_text("⚠️ দয়া করে একটি বৈধ ছবি (Photo) পাঠান:")
-        return ASK_WD_PHOTO
-
-    photo_id = update.message.photo[-1].file_id
-    amount = context.user_data.get("wd_amount")
     method = context.user_data.get("wd_method")
     number = context.user_data.get("wd_number")
 
-    success, reason, wd_id = db.request_withdrawal(user_id, amount, method, number, photo_id, MIN_WITHDRAW)
+    # ডাটাবেজে রিকোয়েস্ট সাবমিট করা (ফটো ছাড়াই ব্যাকএন্ড সেভ হবে)
+    success, reason, wd_id = db.request_withdrawal(user_id, amount, method, number, "no_photo", MIN_WITHDRAW)
 
     if not success:
         messages = {
@@ -530,13 +517,29 @@ async def withdraw_photo_received(update: Update, context: ContextTypes.DEFAULT_
         context.user_data.clear()
         return ConversationHandler.END
 
-    keyboard = [[InlineKeyboardButton("🏠 মেনু", callback_data="menu")]]
+    # ইউজারকে পেমেন্ট গ্রুপে স্ক্রিনশট দেওয়ার মেসেজ দেখানো
+    keyboard = [
+        [InlineKeyboardButton("📢 পেমেন্ট গ্রুপ লিংক", url=PAYMENT_GROUP_LINK)],
+        [InlineKeyboardButton("🏠 মূল মেনু", callback_data="menu")]
+    ]
+    
+    success_text = (
+        f"🎉 *উইথড্র সফলভাবে সম্পন্ন হয়েছে!*\n\n"
+        f"💵 পরিমাণ: *{amount:.2f} টাকা*\n"
+        f"📱 মেথড: *{method}*\n"
+        f"🔢 নাম্বার: *{number}*\n\n"
+        f"⚠️ পেমেন্ট প্রুফ বা প্রমাণ হিসেবে এই উইথড্র মেসেজের একটি স্ক্রিনশট নিয়ে "
+        f"আমাদের মূল **[পেমেন্ট গ্রুপ]({PAYMENT_GROUP_LINK})**-এ গিয়ে জমা দিন।"
+    )
+    
     await update.message.reply_text(
-        f"✅ *উইথড্র রিকোয়েস্ট স্ক্রিনশটসহ জমা হয়েছে!*\n\n💵 পরিমাণ: {amount:.2f} টাকা\n📱 মেথড: {method}\n🔢 নাম্বার: {number}",
+        success_text,
         parse_mode="Markdown",
+        disable_web_page_preview=True,
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+    # এডমিন প্যানেল বা চ্যানেলে নোটিফিকেশন পাঠানো
     admin_keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ এপ্রুভ উইথড্র", callback_data=f"wd_approve_{wd_id}"),
         InlineKeyboardButton("❌ রিজেক্ট উইথড্র", callback_data=f"wd_reject_{wd_id}"),
@@ -544,7 +547,7 @@ async def withdraw_photo_received(update: Update, context: ContextTypes.DEFAULT_
 
     bot_username = (await context.bot.get_me()).username
     channel_text = (
-        f"🔔 *নতুন উইথড্র সাবমিশন (প্রুফসহ)!* #{wd_id}\n\n"
+        f"🔔 *নতুন উইথড্র রিকোয়েস্ট!* #{wd_id}\n\n"
         f"👤 ইউজার: {update.effective_user.first_name}\n"
         f"🆔 ID: `{user_id}`\n"
         f"💵 পরিমাণ: {amount:.2f} টাকা\n"
@@ -554,10 +557,9 @@ async def withdraw_photo_received(update: Update, context: ContextTypes.DEFAULT_
     )
 
     try:
-        await context.bot.send_photo(
+        await context.bot.send_message(
             chat_id=WITHDRAW_LOG_ID,
-            photo=photo_id,
-            caption=channel_text,
+            text=channel_text,
             parse_mode="Markdown",
             reply_markup=admin_keyboard
         )
@@ -590,15 +592,15 @@ async def admin_handle_withdrawal(update: Update, context: ContextTypes.DEFAULT_
 
     wd = db.get_withdrawal(wd_id)
     if wd is None:
-        await query.edit_message_caption(caption="⚠️ রিকোয়েস্ট খুঁজে পাওয়া যায়নি।")
+        await query.edit_message_text(text="⚠️ রিকোয়েস্ট খুঁজে পাওয়া যায়নি।")
         return
     if wd["status"] != "pending":
-        await query.edit_message_caption(caption=f"ℹ️ এই রিকোয়েস্ট আগেই '{wd['status']}' করা হয়েছে।")
+        await query.edit_message_text(text=f"ℹ️ এই রিকোয়েস্ট আগেই '{wd['status']}' করা হয়েছে।")
         return
 
     if is_approve:
         db.approve_withdrawal(wd_id)
-        await query.edit_message_caption(caption="✅ উইথড্র রিকোয়েস্ট এপ্রুভ করা হয়েছে।")
+        await query.edit_message_text(text="✅ উইথড্র রিকোয়েস্ট এপ্রুভ করা হয়েছে।")
         try:
             await context.bot.send_message(
                 wd["user_id"], 
@@ -609,7 +611,7 @@ async def admin_handle_withdrawal(update: Update, context: ContextTypes.DEFAULT_
             pass
     else:
         db.reject_withdrawal(wd_id)
-        await query.edit_message_caption(caption="❌ উইথড্র রিকোয়েস্ট রিজেক্ট করা হয়েছে। টাকা ফেরত দেওয়া হয়েছে।")
+        await query.edit_message_text(text="❌ উইথড্র রিকোয়েস্ট রিজেক্ট করা হয়েছে। টাকা ফেরত দেওয়া হয়েছে।")
         try:
             await context.bot.send_message(
                 wd["user_id"], 
@@ -792,7 +794,6 @@ async def adm_add_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def adm_add_task_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # মেসেজকে প্রতি লাইনে ভাগ করা হচ্ছে
         lines = [line.strip() for line in update.message.text.split("\n") if line.strip()]
         
         if len(lines) < 4:
@@ -833,7 +834,6 @@ def main():
             ],
             ASK_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, withdraw_number_received)],
             ASK_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, withdraw_amount_received)],
-            ASK_WD_PHOTO: [MessageHandler(filters.PHOTO, withdraw_photo_received)],
         },
         fallbacks=[CallbackQueryHandler(withdraw_cancel, pattern="^wd_cancel$")],
         per_message=False,
