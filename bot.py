@@ -32,7 +32,7 @@ WITHDRAW_METHODS = ["bKash", "Nagad", "Rocket"]
 ASK_METHOD, ASK_NUMBER, ASK_AMOUNT, ASK_WD_PHOTO = range(4)
 ASK_TASK_PROOF = 4
 
-# ایڈمین پنےল اسٹیট
+# এডমিন প্যানেল স্টেট
 ASK_ADMIN_CHECK_USER = 5
 ASK_ADMIN_CHANGE_BAL_ID = 6
 ASK_ADMIN_CHANGE_BAL_AMT = 7
@@ -87,7 +87,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_force_join_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "⚠️ *আমাদের অফিসিয়াল চ্যানেলে জয়েন করুন!*\n\n"
-        "বটের মূল মেনু দেখতে এবং টাকা আয় করতে নিচের চ্যানেলে জয়েন করা বাধ্যতামূল। "
+        "বটের মূল মেনু দেখতে এবং টাকা আয় করতে নিচের চ্যানেলে জয়েন করা বাধ্যতামূলক। "
         "জয়েন করার পর নিচে '✅ জয়েন করেছি' বাটনে ক্লিক করুন।"
     )
     keyboard = [
@@ -476,7 +476,6 @@ async def withdraw_number_received(update: Update, context: ContextTypes.DEFAULT
         return ASK_NUMBER
 
     context.user_data["wd_number"] = number
-    user = db.get_user(update.effective_user.id)
     await update.message.reply_text(f"💰 কত টাকা উইথড্র করতে চান লিখুন (মিনিমাম {MIN_WITHDRAW} টাকা):")
     return ASK_AMOUNT
 
@@ -499,7 +498,6 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text("⚠️ আপনার ব্যালেন্সে পর্যাপ্ত টাকা নেই। আবার লিখুন:")
         return ASK_AMOUNT
 
-    # 📸 ঠিক টাস্ক সিস্টেমের মতো ছবি চাওয়া হচ্ছে
     await update.message.reply_text("📸 উইথড্র করার প্রমাণ বা পেমেন্ট প্রুফ হিসেবে একটি স্ক্রিনশট/ছবি (Photo) পাঠান:")
     return ASK_WD_PHOTO
 
@@ -556,7 +554,6 @@ async def withdraw_photo_received(update: Update, context: ContextTypes.DEFAULT_
     )
 
     try:
-        # 📸 টাস্কের মতো ছবি আকারে এডমিন লগ চ্যানেলে বাটনসহ পোস্ট হচ্ছে
         await context.bot.send_photo(
             chat_id=WITHDRAW_LOG_ID,
             photo=photo_id,
@@ -669,7 +666,10 @@ async def adm_check_user_received(update: Update, context: ContextTypes.DEFAULT_
         is_ban = "🚫 Banned" if db.is_user_banned(target_id) else "✅ Active"
         text = (
             f"👤 *ইউজার ইনফো: {user['name']}*\n\n"
-            f"🆔 ID: `{target_id}`\n🚦 স্ট্যাটাস: *{is_ban}*\n💰 ব্যালেন্স: {user['balance']:.2f} টাকা\n👥 মোট রেফার: {ref_count} জন"
+            f"🆔 ID: `{target_id}`\n"
+            f"🚦 স্ট্যাটাস: *{is_ban}*\n"
+            f"💰 ব্যালেন্স: {user['balance']:.2f} টাকা\n"
+            f"👥 মোট রেফার: {ref_count} জন"
         )
         await update.message.reply_text(text, parse_mode="Markdown")
     except ValueError:
@@ -774,17 +774,38 @@ async def adm_broadcast_received(update: Update, context: ContextTypes.DEFAULT_T
 
 async def adm_add_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
-    await update.callback_query.edit_message_text("ফরম্যাট: `টাইটেল || বিবরণ || টাকা || লিংক`")
+    await update.callback_query.edit_message_text(
+        "🎯 *নতুন টাস্ক যোগ করার সঠিক নিয়ম*\n\n"
+        "নিচের ফরম্যাটে তথ্যটি একসাথে লিখে পাঠান (মাঝখানে `||` চিহ্ন ব্যবহার করুন):\n\n"
+        "`টাইটেল || কাজের বিবরণ || টাকা || লিংক` \n\n"
+        "*উদাহরণ:*\n"
+        "`ইউটিউব সাবস্ক্রাইব || চ্যানেলটি সাবস্ক্রাইব করে স্ক্রিনশট দিন || 5.00 || https://youtube.com`",
+        parse_mode="Markdown"
+    )
     return ASK_ADMIN_ADD_TASK_DATA
 
 
 async def adm_add_task_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         parts = [p.strip() for p in update.message.text.split("||")]
-        db.add_new_task(parts[0], parts[1], float(parts[2]), parts[3])
-        await update.message.reply_text("✅ টাস্ক যুক্ত হয়েছে।")
-    except Exception:
-        await update.message.reply_text("⚠️ ভুল ফরম্যাট।")
+        
+        if len(parts) < 4:
+            await update.message.reply_text("⚠️ ফরম্যাট ভুল হয়েছে! ৪টি তথ্যই থাকতে হবে এবং মাঝে || দিতে হবে। আবার চেষ্টা করুন:")
+            return ASK_ADMIN_ADD_TASK_DATA
+        
+        title = parts[0]
+        desc = parts[1]
+        reward = float(parts[2])
+        url = parts[3]
+        
+        db.add_new_task(title, desc, reward, url)
+        await update.message.reply_text(f"✅ *নতুন টাস্ক সফলভাবে যুক্ত হয়েছে!*\n\n📌 টাইটেল: {title}\n💰 রিওয়ার্ড: {reward} টাকা")
+    except ValueError:
+        await update.message.reply_text("⚠️ টাকার পরিমাণটি শুধু সংখ্যায় লিখুন (যেমন: 5.00 বা 3)। আবার চেষ্টা করুন:")
+        return ASK_ADMIN_ADD_TASK_DATA
+    except Exception as e:
+        logger.error(f"Task add error: {e}")
+        await update.message.reply_text("⚠️ একটি সমস্যা হয়েছে। আবার চেষ্টা করুন।")
     return ConversationHandler.END
 
 
