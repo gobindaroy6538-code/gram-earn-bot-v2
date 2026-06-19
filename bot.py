@@ -211,7 +211,7 @@ async def daily_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if success:
         text = (
-            f"🎁 *ডেইলি বোনাস পেয়েছেন!*\n\n"
+            f"🎁 *데일리 বোনাস পেয়েছেন!*\n\n"
             f"+{DAILY_BONUS} টাকা যুক্ত হয়েছে।\n"
             f"💰 নতুন ব্যালেন্স: *{info:.2f} টাকা*\n\n"
             f"আবার 24 ঘণ্টা পর ক্লেইম করতে পারবেন।"
@@ -455,7 +455,7 @@ async def withdraw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(m, callback_data=f"wd_method_{m}")] for m in WITHDRAW_METHODS]
     keyboard.append([InlineKeyboardButton("❌ বাতিল", callback_data="wd_cancel")])
     await query.edit_message_text(
-        f"💵 *উইথড্র রিকোয়েস্ট*\n\nআপনার ব্যালেন্স: *{user['balance']:.2f} টাকা*\n\nপেমেন্ট মেথড সিলেক্ট করুন:",
+        f"💵 *উইথড্র রিকোয়েস্ট*\n\n...আপনার ব্যালেন্স: *{user['balance']:.2f} টাকা*\n\nপেমেন্ট মেথড সিলেক্ট করুন:",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -620,7 +620,7 @@ async def admin_handle_withdrawal(update: Update, context: ContextTypes.DEFAULT_
             pass
 
 
-# ---------------- NEW FEATURE: LEADERBOARD SYSTEM ----------------
+# ---------------- LEADERBOARD SYSTEM ----------------
 
 async def leaderboard_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -700,6 +700,7 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
          InlineKeyboardButton("✅ ইউজার আনব্যান", callback_data="adm_unban_user")],
         [InlineKeyboardButton("📢 ব্রডকাস্ট নোটিশ", callback_data="adm_broadcast"),
          InlineKeyboardButton("🎯 নতুন টাস্ক যোগ", callback_data="adm_add_task")],
+        [InlineKeyboardButton("📊 পরিসংখ্যান (Stats)", callback_data="adm_stats")],
         [InlineKeyboardButton("❌ প্যানেল বন্ধ করুন", callback_data="adm_close")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -713,7 +714,7 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def adm_check_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
-    await update.callback_query.edit_message_text("🔍 Use ID পাঠান:")
+    await update.callback_query.edit_message_text("🔍 User ID পাঠান:")
     return ASK_ADMIN_CHECK_USER
 
 
@@ -844,7 +845,7 @@ async def adm_add_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "২য় লাইন: কাজের বিবরণ\n"
         "৩য় লাইন: টাকার পরিমাণ (শুধু সংখ্যা)\n"
         "৪র্থ লাইন: কাজের লিংক\n\n"
-        "*উদাহরণ:*\n"
+        "*उदाहरण:*\n"
         "ইউটিউব সাবস্ক্রাইব\n"
         "চ্যানেল সাবস্ক্রাইব করে স্ক্রিনশট দিন\n"
         "5.00\n"
@@ -875,6 +876,37 @@ async def adm_add_task_received(update: Update, context: ContextTypes.DEFAULT_TY
         logger.error(f"Task add error: {e}")
         await update.message.reply_text("⚠️ একটি সমস্যা হয়েছে। আবার চেষ্টা করুন।")
     return ConversationHandler.END
+
+
+# ---------------- NEW HANDLING: USER STATISTICS ----------------
+
+async def adm_show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("⛔ আপনি এই বটের মূল এডমিন নন!", show_alert=True)
+        return
+
+    # ডাটাবেজ থেকে লাইভ পরিসংখ্যান নিয়ে আসা
+    stats = db.get_system_stats()
+
+    text = (
+        "📊 *Gram Earn Bot - লাইভ পরিসংখ্যান*\n\n"
+        f"📈 মোট রেজিস্টার্ড ইউজার: *{stats['total_users']} জন*\n"
+        f"🚫 মোট ব্যানড ইউজার: *{stats['banned_users']} জন*\n"
+        f"🎯 মোট একটিভ টাস্ক: *{stats['total_tasks']} টি*\n"
+        f"⏳ পেন্ডিং উইথड्र রিকোয়েস্ট: *{stats['pending_withdraws']} টি*\n\n"
+        "🔄 প্রতিবার এই বাটনে ক্লিক করলে একদম লাইভ এবং আপডেটেড ডাটা দেখতে পাবেন।"
+    )
+    
+    keyboard = [[InlineKeyboardButton("🔙 এডমিন মেনু", callback_data="adm_back_to_menu")]]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+async def adm_back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
+    await admin_menu(update, context)
 
 
 async def adm_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -951,6 +983,10 @@ def main():
     app.add_handler(CallbackQueryHandler(leaderboard_menu, pattern="^leaderboard_menu$"))
     app.add_handler(CallbackQueryHandler(show_top_earners, pattern="^top_earners$"))
     app.add_handler(CallbackQueryHandler(show_top_referreers, pattern="^top_referrers$"))
+    
+    # User Stats Callbacks
+    app.add_handler(CallbackQueryHandler(adm_show_stats, pattern="^adm_stats$"))
+    app.add_handler(CallbackQueryHandler(adm_back_to_menu, pattern="^adm_back_to_menu$"))
     
     app.add_handler(CallbackQueryHandler(adm_close, pattern="^adm_close$"))
 
