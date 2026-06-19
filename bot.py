@@ -19,9 +19,9 @@ ADMIN_ID = 8012544346
 
 # --- FORCE JOIN CONFIGURATION ---
 FORCE_CHANNELS = [
-    -1004462605202,  # আপনার চ্যানেল আইডি
+    -1004462605202,
 ]
-CHANNEL_LINK = "https://t.me/gramearnbotV2"  # চ্যানেলের লিংক
+CHANNEL_LINK = "https://t.me/gramearnbotV2"
 
 CHANNEL_ID = FORCE_CHANNELS[0] 
 WITHDRAW_LOG_ID = CHANNEL_ID  
@@ -29,23 +29,22 @@ WITHDRAW_LOG_ID = CHANNEL_ID
 WITHDRAW_METHODS = ["bKash", "Nagad", "Rocket"]
 
 # --- Conversation States ---
-ASK_METHOD, ASK_NUMBER, ASK_AMOUNT = range(3)
+ASK_METHOD, ASK_NUMBER, ASK_AMOUNT, ASK_WD_PHOTO = range(4)
 ASK_TASK_PROOF = 4
 
-# ایڈمین پنےل اسٹیٹ
+# ایڈمین پنےল اسٹیট
 ASK_ADMIN_CHECK_USER = 5
 ASK_ADMIN_CHANGE_BAL_ID = 6
 ASK_ADMIN_CHANGE_BAL_AMT = 7
 ASK_ADMIN_BROADCAST = 8
 ASK_ADMIN_ADD_TASK_DATA = 9
-ASK_ADMIN_BAN_USER = 10      # নতুন স্টেট
-ASK_ADMIN_UNBAN_USER = 11    # নতুন স্টেট
+ASK_ADMIN_BAN_USER = 10
+ASK_ADMIN_UNBAN_USER = 11
 
 db = Database()
 
 
 async def is_user_joined_all(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """ইউজার চ্যানেলে জয়েন করেছে কিনা তা চেক করে"""
     for channel in FORCE_CHANNELS:
         try:
             member = await context.bot.get_chat_member(chat_id=channel, user_id=user_id)
@@ -59,10 +58,8 @@ async def is_user_joined_all(user_id: int, context: ContextTypes.DEFAULT_TYPE) -
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    
-    # 🚫 ১ম চেক: ইউজার ব্যান কিনা
     if db.is_user_banned(user.id):
-        await update.message.reply_text("❌ দুঃখিত, আপনার অ্যাকাউন্টটি ব্যান করা হয়েছে। আপনি এই বট ব্যবহার করতে পারবেন না।")
+        await update.message.reply_text("❌ দুঃখিত, আপনার অ্যাকাউন্টটি ব্যান করা হয়েছে।")
         return
 
     args = context.args
@@ -80,7 +77,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-    # জয়েন চেক করা হচ্ছে
     if not await is_user_joined_all(user.id, context):
         await show_force_join_msg(update, context)
         return
@@ -89,13 +85,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_force_join_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ইউজার জয়েন না করলে এই মেসেজটি দেখাবে"""
     text = (
         "⚠️ *আমাদের অফিসিয়াল চ্যানেলে জয়েন করুন!*\n\n"
-        "বটের মূল মেনু দেখতে এবং টাকা আয় করতে নিচের চ্যানেলে জয়েন করা বাধ্যতামূলক। "
+        "বটের মূল মেনু দেখতে এবং টাকা আয় করতে নিচের চ্যানেলে জয়েন করা বাধ্যতামূল। "
         "জয়েন করার পর নিচে '✅ জয়েন করেছি' বাটনে ক্লিক করুন।"
     )
-    
     keyboard = [
         [InlineKeyboardButton("📢 চ্যানেলে জয়েন করুন", url=CHANNEL_LINK)],
         [InlineKeyboardButton("✅ জয়েন করেছি", callback_data="check_joined")]
@@ -111,8 +105,6 @@ async def show_force_join_msg(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def check_joined_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    
-    # ব্যানিং চেক
     if db.is_user_banned(user_id):
         await query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
         return
@@ -126,8 +118,6 @@ async def check_joined_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    
-    # 🚫 ব্যানিং চেক
     if db.is_user_banned(user_id):
         if update.callback_query:
             await update.callback_query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
@@ -135,7 +125,6 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ আপনার অ্যাকাউন্টটি ব্যানড!")
         return
 
-    # মেনু খোলার সময়ও চেক করবে ইউজার চ্যানেল লিভ নিয়েছে কিনা
     if not await is_user_joined_all(user_id, context):
         await show_force_join_msg(update, context)
         return
@@ -166,7 +155,6 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    
     if db.is_user_banned(user_id):
         await query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
         return
@@ -189,7 +177,6 @@ async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    
     if db.is_user_banned(user_id):
         await query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
         return
@@ -213,7 +200,6 @@ async def show_referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def daily_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    
     if db.is_user_banned(user_id):
         await query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
         return
@@ -249,7 +235,6 @@ async def daily_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_task_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    
     if db.is_user_banned(user_id):
         await query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
         return
@@ -289,7 +274,7 @@ async def view_single_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"*{task['title']}*\n\n"
         f"📌 *কাজ:* {task['desc']}\n\n"
         f"💰 বোনাস: *{task['reward']} টাকা*\n\n"
-        f"👇 নিচে 'স্ক্রিনশট জমা দিন' বাটনে ক্লিক করে প্রুф পাঠান।"
+        f"👇 নিচে 'স্ক্রিনশট জমা দিন' বাটনে ক্লিক করে প্রুফ পাঠান।"
     )
     keyboard = [
         [InlineKeyboardButton("🔗 লিংকে যান", url=task["url"])],
@@ -302,7 +287,6 @@ async def view_single_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def submit_proof_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    
     if db.is_user_banned(user_id):
         await query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
         return ConversationHandler.END
@@ -324,10 +308,13 @@ async def submit_proof_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def task_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    
     if db.is_user_banned(user.id):
         await update.message.reply_text("❌ আপনার অ্যাকাউন্টটি ব্যানড!")
         return ConversationHandler.END
+
+    if not update.message.photo:
+        await update.message.reply_text("⚠️ দয়া করে একটি স্ক্রিনশট (Photo) পাঠান:")
+        return ASK_TASK_PROOF
 
     photo_file_id = update.message.photo[-1].file_id
     task_id = context.user_data.get("current_task_id")
@@ -343,7 +330,7 @@ async def task_proof_received(update: Update, context: ContextTypes.DEFAULT_TYPE
         if result == "approved":
             await update.message.reply_text("⚠️ আপনি এই টাস্কটি ইতিমধ্যেই সম্পন্ন করেছেন।")
         else:
-            await update.message.reply_text("⚠️ Ihre প্রুফ ইতিমধ্যেই পেন্ডিং লিস্টে আছে।")
+            await update.message.reply_text("⚠️ আপনার প্রুফ ইতিমধ্যেই পেন্ডিং লিস্টে আছে।")
         return ConversationHandler.END
 
     await update.message.reply_text(
@@ -387,7 +374,7 @@ async def channel_task_adder(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception as e:
             logger.error(f"Channel task parsing error: {e}")
             await update.channel_post.reply_text(
-                "⚠️ *টাস্ক যোগ করতে সমস্যা হয়েছে!*\n\nসঠিক ফরম্যাট ব্যবহার করুন:\n#addtask\nটাইটেল\nকাজের বিবরণ\nটাকা (শুধু সংখ্যা)\nলিংক"
+                "⚠️ সঠিক ফরম্যাট ব্যবহার করুন:\n#addtask\nটাইটেল\nকাজের বিবরণ\nটাকা\nলিংক"
             )
 
 
@@ -412,14 +399,14 @@ async def admin_handle_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
         else:
-            await query.edit_message_caption(caption="⚠️ ইতিমধ্যে অ্যাকশন নেওয়া হয়েছে বা ডাটা পাওয়া যায়নি।")
+            await query.edit_message_caption(caption="⚠️ ইতিমধ্যে অ্যাকশন নেওয়া হয়েছে।")
     else:
         res = db.reject_task_submission(sub_id)
         if res:
             u_id, t_id = res
             await query.edit_message_caption(caption="❌ এই টাস্কটি রিজেক্ট করা হয়েছে।")
             try:
-                await context.bot.send_message(u_id, "❌ আপনার পাঠানো টাস্ক স্ক্রিনশটটি বাতিল (Reject) করা হয়েছে। সঠিক নিয়মে আবার চেষ্টা করুন।")
+                await context.bot.send_message(u_id, "❌ আপনার পাঠানো টাস্ক স্ক্রিনশটটি বাতিল (Reject) করা হয়েছে।")
             except Exception:
                 pass
         else:
@@ -433,18 +420,15 @@ async def withdraw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
 
-    # 🚫 ১ম চেক: ইউজার ব্যান কিনা
     if db.is_user_banned(user_id):
         await query.answer("❌ আপনার অ্যাকাউন্টটি ব্যানড!", show_alert=True)
         return ConversationHandler.END
 
-    # 🚨 ২য় চেক: উইথড্র দেওয়ার আগে চ্যানেল জয়েন আছে কিনা
     if not await is_user_joined_all(user_id, context):
         await show_force_join_msg(update, context)
         return ConversationHandler.END
 
     user = db.get_user(user_id)
-
     if user is None:
         await query.edit_message_text("⚠️ অ্যাকাউন্ট পাওয়া যায়নি। /start চাপুন।")
         return ConversationHandler.END
@@ -452,8 +436,7 @@ async def withdraw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if db.has_pending_withdrawal(user_id):
         keyboard = [[InlineKeyboardButton("🏠 মেনু", callback_data="menu")]]
         await query.edit_message_text(
-            "⏳ আপনার একটি উইথড্র রিকোয়েস্ট আগে থেকেই পেন্ডিং আছে।\n"
-            "অ্যাডমিন রিভিউ করার পর নতুন রিকোয়েস্ট করতে পারবেন।",
+            "⏳ আপনার একটি উইথড্র রিকোয়েস্ট আগে থেকেই পেন্ডিং আছে।",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return ConversationHandler.END
@@ -461,10 +444,7 @@ async def withdraw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user["balance"] < MIN_WITHDRAW:
         keyboard = [[InlineKeyboardButton("🏠 মেনু", callback_data="menu")]]
         await query.edit_message_text(
-            f"⚠️ *উইথড্র করতে পারছেন না*\n\n"
-            f"মিনিমাম উইথড্র: *{MIN_WITHDRAW} টাকা*\n"
-            f"আপনার ব্যালেন্স: *{user['balance']:.2f} টাকা*\n\n"
-            f"আরও আয় করে আবার চেষ্টা করুন।",
+            f"⚠️ *উইথড্র করতে পারছেন না*\n\nমিনিমাম উইথড্র: *{MIN_WITHDRAW} টাকা*\nআপনার ব্যালেন্স: *{user['balance']:.2f} টাকা*",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -473,10 +453,7 @@ async def withdraw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(m, callback_data=f"wd_method_{m}")] for m in WITHDRAW_METHODS]
     keyboard.append([InlineKeyboardButton("❌ বাতিল", callback_data="wd_cancel")])
     await query.edit_message_text(
-        f"💵 *উইথড্র রিকোয়েস্ট*\n\n"
-        f"💰 আপনার ব্যালেন্স: *{user['balance']:.2f} টাকা*\n"
-        f"📌 মিনিমাম: {MIN_WITHDRAW} টাকা\n\n"
-        f"পেমেন্ট মেথড সিলেক্ট করুন:",
+        f"💵 *উইথড্র রিকোয়েস্ট*\n\nআপনার ব্যালেন্স: *{user['balance']:.2f} টাকা*\n\nপেমেন্ট মেথড সিলেক্ট করুন:",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -488,88 +465,105 @@ async def withdraw_method_chosen(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     method = query.data.replace("wd_method_", "")
     context.user_data["wd_method"] = method
-    await query.edit_message_text(
-        f"✅ মেথড: *{method}*\n\nএখন আপনার *{method} নাম্বার* লিখে পাঠান:\n(উদাহরণ: 01XXXXXXXXX)",
-        parse_mode="Markdown"
-    )
+    await query.edit_message_text(f"✅ মেথড: *{method}*\n\nএখন আপনার *{method} নাম্বার* লিখে পাঠান:")
     return ASK_NUMBER
 
 
 async def withdraw_number_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     number = update.message.text.strip()
     if not (number.isdigit() and 9 <= len(number) <= 15):
-        await update.message.reply_text("⚠️ সঠিক নাম্বার লিখুন (শুধু সংখ্যা, যেমন: 01XXXXXXXXX)।")
+        await update.message.reply_text("⚠️ সঠিক নাম্বার লিখুন (শুধু সংখ্যা)।")
         return ASK_NUMBER
 
     context.user_data["wd_number"] = number
     user = db.get_user(update.effective_user.id)
-    await update.message.reply_text(
-        f"💰 আপনার ব্যালেন্স: *{user['balance']:.2f} টাকা*\n\n"
-        f"কত টাকা উইথড্র করতে চান লিখুন (মিনিমাম {MIN_WITHDRAW} টাকা):",
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text(f"💰 কত টাকা উইথড্র করতে চান লিখুন (মিনিমাম {MIN_WITHDRAW} টাকা):")
     return ASK_AMOUNT
 
 
 async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    user_id = update.effective_user.id
-
     try:
         amount = float(text)
+        context.user_data["wd_amount"] = amount
     except ValueError:
-        await update.message.reply_text("⚠️ সঠিক সংখ্যা লিখুন। যেমন: 50")
+        await update.message.reply_text("⚠️ সঠিক সংখ্যা লিখুন।")
         return ASK_AMOUNT
 
+    if amount < MIN_WITHDRAW:
+        await update.message.reply_text(f"⚠️ মিনিমাম {MIN_WITHDRAW} টাকা উইথড্র করতে হবে। আবার লিখুন:")
+        return ASK_AMOUNT
+
+    user = db.get_user(update.effective_user.id)
+    if user["balance"] < amount:
+        await update.message.reply_text("⚠️ আপনার ব্যালেন্সে পর্যাপ্ত টাকা নেই। আবার লিখুন:")
+        return ASK_AMOUNT
+
+    # 📸 ঠিক টাস্ক সিস্টেমের মতো ছবি চাওয়া হচ্ছে
+    await update.message.reply_text("📸 উইথড্র করার প্রমাণ বা পেমেন্ট প্রুফ হিসেবে একটি স্ক্রিনশট/ছবি (Photo) পাঠান:")
+    return ASK_WD_PHOTO
+
+
+async def withdraw_photo_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if db.is_user_banned(user_id):
+        await update.message.reply_text("❌ আপনার অ্যাকাউন্টটি ব্যানড!")
+        return ConversationHandler.END
+
+    if not update.message.photo:
+        await update.message.reply_text("⚠️ দয়া করে একটি বৈধ ছবি (Photo) পাঠান:")
+        return ASK_WD_PHOTO
+
+    photo_id = update.message.photo[-1].file_id
+    amount = context.user_data.get("wd_amount")
     method = context.user_data.get("wd_method")
     number = context.user_data.get("wd_number")
 
-    success, reason, wd_id = db.request_withdrawal(user_id, amount, method, number, MIN_WITHDRAW)
+    success, reason, wd_id = db.request_withdrawal(user_id, amount, method, number, photo_id, MIN_WITHDRAW)
 
     if not success:
         messages = {
-            "account_not_found": "⚠️ অ্যাকাউন্ট পাওয়া যায়নি। /start চাপুন।",
-            "already_pending": "⏳ আপনার আগের একটি রিকোয়েস্ট এখনও পেন্ডিং আছে।",
-            "below_minimum": f"⚠️ মিনিমাম {MIN_WITHDRAW} টাকা উইথড্র করতে হবে।",
-            "insufficient_balance": "⚠️ আপনার ব্যালেন্সে এই পরিমাণ টাকা নেই।",
+            "account_not_found": "⚠️ অ্যাকাউন্ট পাওয়া যায়নি।",
+            "already_pending": "⏳ আপনার একটি উইথড্র রিকোয়েস্ট পেন্ডিং আছে।",
+            "insufficient_balance": "⚠️ পর্যাপ্ত ব্যালেন্স নেই।",
         }
         keyboard = [[InlineKeyboardButton("🏠 মেনু", callback_data="menu")]]
-        await update.message.reply_text(
-            messages.get(reason, "⚠️ একটি সমস্যা হয়েছে, আবার চেষ্টা করুন।"),
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        await update.message.reply_text(messages.get(reason, "⚠️ সমস্যা হয়েছে।"), reply_markup=InlineKeyboardMarkup(keyboard))
         context.user_data.clear()
         return ConversationHandler.END
 
     keyboard = [[InlineKeyboardButton("🏠 মেনু", callback_data="menu")]]
     await update.message.reply_text(
-        f"✅ *উইথড্র রিকোয়েস্ট জমা হয়েছে!*\n\n"
-        f"💵 পরিমাণ: {amount:.2f} টাকা\n"
-        f"📱 মেথড: {method}\n"
-        f"🔢 নাম্বার: {number}\n\n"
-        f"অ্যাডমিন এপ্রুভ করার পর টাকা পাঠানো হবে। ধৈর্য ধরুন।",
+        f"✅ *উইথড্র রিকোয়েস্ট স্ক্রিনশটসহ জমা হয়েছে!*\n\n💵 পরিমাণ: {amount:.2f} টাকা\n📱 মেথড: {method}\n🔢 নাম্বার: {number}",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
     admin_keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("✅ এপ্রুভ", callback_data=f"wd_approve_{wd_id}"),
-        InlineKeyboardButton("❌ রিজেক্ট", callback_data=f"wd_reject_{wd_id}"),
+        InlineKeyboardButton("✅ এপ্রুভ উইথড্র", callback_data=f"wd_approve_{wd_id}"),
+        InlineKeyboardButton("❌ রিজেক্ট উইথড্র", callback_data=f"wd_reject_{wd_id}"),
     ]])
 
     bot_username = (await context.bot.get_me()).username
     channel_text = (
-        f"🔔 *নতুন উইথড্র রিকোয়েস্ট* #{wd_id}\n\n"
-        f"👤 ইউজার: {update.effective_user.first_name} (@{update.effective_user.username or 'নাই'})\n"
-        f"🆔 ID: `{update.effective_user.id}`\n"
+        f"🔔 *নতুন উইথড্র সাবমিশন (প্রুফসহ)!* #{wd_id}\n\n"
+        f"👤 ইউজার: {update.effective_user.first_name}\n"
+        f"🆔 ID: `{user_id}`\n"
         f"💵 পরিমাণ: {amount:.2f} টাকা\n"
         f"📱 মেথড: {method}\n"
-        f"🔢 নাম্বার: {number}\n\n"
+        f"🔢 নাম্বার: {number}\n"
         f"🤖 Bot: @{bot_username}"
     )
 
     try:
-        await context.bot.send_message(chat_id=WITHDRAW_LOG_ID, text=channel_text, parse_mode="Markdown", reply_markup=admin_keyboard)
+        # 📸 টাস্কের মতো ছবি আকারে এডমিন লগ চ্যানেলে বাটনসহ পোস্ট হচ্ছে
+        await context.bot.send_photo(
+            chat_id=WITHDRAW_LOG_ID,
+            photo=photo_id,
+            caption=channel_text,
+            parse_mode="Markdown",
+            reply_markup=admin_keyboard
+        )
     except Exception as e:
         logger.error(f"❌ FAILED to send withdraw notification: {e}")
 
@@ -599,42 +593,37 @@ async def admin_handle_withdrawal(update: Update, context: ContextTypes.DEFAULT_
 
     wd = db.get_withdrawal(wd_id)
     if wd is None:
-        await query.edit_message_text("⚠️ রিকোয়েস্ট খুঁজে পাওয়া যায়নি।")
+        await query.edit_message_caption(caption="⚠️ রিকোয়েস্ট খুঁজে পাওয়া যায়নি।")
         return
     if wd["status"] != "pending":
-        await query.edit_message_text(f"ℹ️ এই রিকোয়েস্ট আগেই '{wd['status']}' করা হয়েছে।")
+        await query.edit_message_caption(caption=f"ℹ️ এই রিকোয়েস্ট আগেই '{wd['status']}' করা হয়েছে।")
         return
 
     if is_approve:
         db.approve_withdrawal(wd_id)
-        status_text = "✅ *এপ্রুভ করা হয়েছে*"
-        user_msg = (
-            f"✅ *আপনার উইথড্র রিকোয়েস্ট এপ্রুভ হয়েছে!*\n\n"
-            f"💵 {wd['amount']:.2f} টাকা {wd['method']} ({wd['account_no']}) এ পাঠানো হচ্ছে।"
-        )
+        await query.edit_message_caption(caption="✅ উইথড্র রিকোয়েস্ট এপ্রুভ করা হয়েছে।")
+        try:
+            await context.bot.send_message(
+                wd["user_id"], 
+                f"✅ *আপনার উইথড্র রিকোয়েস্ট এপ্রুভ হয়েছে!*\n\n💵 {wd['amount']:.2f} টাকা {wd['method']} ({wd['account_no']}) এ পাঠানো হয়েছে।",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
     else:
         db.reject_withdrawal(wd_id)
-        status_text = "❌ *রিজেক্ট করা হয়েছে (টাকা ব্যালেন্সে ফেরত)*"
-        user_msg = (
-            f"❌ *আপনার উইথড্র রিকোয়েস্ট রিজেক্ট হয়েছে。*\n\n"
-            f"💵 {wd['amount']:.2f} টাকা আপনার ব্যালেন্সে ফেরত দেওয়া হয়েছে।"
-        )
-
-    await query.edit_message_text(
-        f"{status_text}\n\n"
-        f"👤 User ID: `{wd['user_id']}`\n"
-        f"💵 পরিমাণ: {wd['amount']:.2f} টাকা\n"
-        f"📱 মেথড: {wd['method']} ({wd['account_no']})",
-        parse_mode="Markdown"
-    )
-
-    try:
-        await context.bot.send_message(wd["user_id"], user_msg, parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"User notify failed: {e}")
+        await query.edit_message_caption(caption="❌ উইথড্র রিকোয়েস্ট রিজেক্ট করা হয়েছে। টাকা ফেরত দেওয়া হয়েছে।")
+        try:
+            await context.bot.send_message(
+                wd["user_id"], 
+                f"❌ *আপনার উইথড্র রিকোয়েস্ট রিজেক্ট হয়েছে!*\n\n💵 {wd['amount']:.2f} টাকা আপনার মেইন ব্যালেন্সে ফেরত দেওয়া হয়েছে।",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
 
 
-# ---------------- ADMIN PANEL SYSTEM (COMMAND BASED) ----------------
+# ---------------- ADMIN PANEL SYSTEM ----------------
 
 async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -643,17 +632,14 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⛔ আপনি এই বটের অ্যাডমিন নন!")
         return ConversationHandler.END
 
-    text = (
-        "👑 *Gram Earn Bot - এডমিন প্যানেল*\n\n"
-        "নিচের বাটনগুলো ব্যবহার করে বট নিয়ন্ত্রণ করুন:"
-    )
+    text = "👑 *Gram Earn Bot - এডমিন প্যানেল*"
     keyboard = [
-        [InlineKeyboardButton("🔍 ইউজার চেক করুন", callback_data="adm_check_user"),
+        [InlineKeyboardButton("🔍 ইউজার চেক", callback_data="adm_check_user"),
          InlineKeyboardButton("💰 ব্যালেন্স পরিবর্তন", callback_data="adm_change_bal")],
-        [InlineKeyboardButton("🚫 ইউজার ব্যান করুন", callback_data="adm_ban_user"),
+        [InlineKeyboardButton("🚫 ইউজার ব্যান", callback_data="adm_ban_user"),
          InlineKeyboardButton("✅ ইউজার আনব্যান", callback_data="adm_unban_user")],
         [InlineKeyboardButton("📢 ব্রডকাস্ট নোটিশ", callback_data="adm_broadcast"),
-         InlineKeyboardButton("🎯 নতুন টাস্ক যোগ করুন", callback_data="adm_add_task")],
+         InlineKeyboardButton("🎯 নতুন টাস্ক যোগ", callback_data="adm_add_task")],
         [InlineKeyboardButton("❌ প্যানেল বন্ধ করুন", callback_data="adm_close")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -667,7 +653,7 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def adm_check_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
-    await update.callback_query.edit_message_text("🔍 যে ইউজারের তথ্য দেখতে চান তার *User ID* পাঠান:")
+    await update.callback_query.edit_message_text("🔍 Use ID পাঠান:")
     return ASK_ADMIN_CHECK_USER
 
 
@@ -676,29 +662,24 @@ async def adm_check_user_received(update: Update, context: ContextTypes.DEFAULT_
         target_id = int(update.message.text.strip())
         user = db.get_user(target_id)
         if not user:
-            await update.message.reply_text("❌ এই আইডি দিয়ে কোনো ইউজার পাওয়া যায়নি।")
+            await update.message.reply_text("❌ ইউজার পাওয়া যায়নি।")
             return ConversationHandler.END
         
         ref_count = db.get_referral_count(target_id)
         is_ban = "🚫 Banned" if db.is_user_banned(target_id) else "✅ Active"
         text = (
             f"👤 *ইউজার ইনফো: {user['name']}*\n\n"
-            f"🆔 ID: `{target_id}`\n"
-            f"🚦 স্ট্যাটাস: *{is_ban}*\n"
-            f"💰 ব্যালেন্স: {user['balance']:.2f} টাকা\n"
-            f"👥 মোট রেফার: {ref_count} জন\n"
-            f"📅 জয়েনিং ডেট: {user['joined_date']}"
+            f"🆔 ID: `{target_id}`\n🚦 স্ট্যাটাস: *{is_ban}*\n💰 ব্যালেন্স: {user['balance']:.2f} টাকা\n👥 মোট রেফার: {ref_count} জন"
         )
         await update.message.reply_text(text, parse_mode="Markdown")
     except ValueError:
-        await update.message.reply_text("⚠️ আইডি শুধুমাত্র সংখ্যা হওয়া উচিত। আবার চেষ্টা করুন।")
         return ASK_ADMIN_CHECK_USER
     return ConversationHandler.END
 
 
 async def adm_change_bal_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
-    await update.callback_query.edit_message_text("💰 যার ব্যালেন্স পরিবর্তন করবেন তার *User ID* দিন:")
+    await update.callback_query.edit_message_text("💰 User ID দিন:")
     return ASK_ADMIN_CHANGE_BAL_ID
 
 
@@ -706,14 +687,13 @@ async def adm_change_bal_id_received(update: Update, context: ContextTypes.DEFAU
     try:
         target_id = int(update.message.text.strip())
         if not db.get_user(target_id):
-            await update.message.reply_text("❌ ইউজার পাওয়া যায়নি। সঠিক আইডি দিন:")
+            await update.message.reply_text("❌ ইউজার পাওয়া যায়নি।")
             return ASK_ADMIN_CHANGE_BAL_ID
         
         context.user_data["adm_target_id"] = target_id
-        await update.message.reply_text("👉 কত টাকা যোগ বা বিয়োগ করতে চান লিখুন:\n(যেমন: ৫০ টাকা বাড়াতে `50`, আর কমাতে `-50` লিখুন)")
+        await update.message.reply_text("👉 কত টাকা যোগ/বিয়োগ করতে চান লিখুন (যেমন 50 বা -50):")
         return ASK_ADMIN_CHANGE_BAL_AMT
     except ValueError:
-        await update.message.reply_text("⚠️ সঠিক আইডি দিন (শুধু সংখ্যা):")
         return ASK_ADMIN_CHANGE_BAL_ID
 
 
@@ -721,142 +701,96 @@ async def adm_change_bal_amt_received(update: Update, context: ContextTypes.DEFA
     try:
         amount = float(update.message.text.strip())
         target_id = context.user_data.get("adm_target_id")
-        
         db.add_balance(target_id, amount)
-        await update.message.reply_text(f"✅ সফলভাবে ইউজার `{target_id}` এর ব্যালেন্সে {amount} টাকা আপডেট করা হয়েছে।")
-        try:
-            await context.bot.send_message(target_id, f"🔔 এডমিন আপনার ব্যালেন্স আপডেট করেছেন।")
-        except Exception:
-            pass
+        await update.message.reply_text(f"✅ সফলভাবে ব্যালেন্স আপডেট করা হয়েছে।")
     except ValueError:
-        await update.message.reply_text("⚠️ সঠিক সংখ্যা লিখুন (যেমন: 50 বা -50):")
         return ASK_ADMIN_CHANGE_BAL_AMT
     context.user_data.clear()
     return ConversationHandler.END
 
 
-# --- নতুন ফিচার: ইউজার ব্যান ---
 async def adm_ban_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
-    await update.callback_query.edit_message_text("🚫 যে ইউজারকে *ব্যান* করতে চান তার User ID পাঠান:")
+    await update.callback_query.edit_message_text("🚫 ব্যান করার জন্য User ID পাঠান:")
     return ASK_ADMIN_BAN_USER
 
 async def adm_ban_user_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         target_id = int(update.message.text.strip())
         if target_id == ADMIN_ID:
-            await update.message.reply_text("❌ আপনি নিজেকে ব্যান করতে পারবেন না!")
+            await update.message.reply_text("❌ নিজেকে ব্যান করা সম্ভব নয়।")
             return ConversationHandler.END
-        
         if not db.get_user(target_id):
-            await update.message.reply_text("❌ এই আইডি দিয়ে কোনো ইউজার পাওয়া যায়নি।")
+            await update.message.reply_text("❌ ইউজার পাওয়া যায়নি।")
             return ConversationHandler.END
-            
         db.ban_user(target_id)
-        await update.message.reply_text(f"✅ ইউজার `{target_id}` কে সফলভাবে ব্যান করা হয়েছে।")
-        try:
-            await context.bot.send_message(target_id, "🚫 আপনার অ্যাকাউন্টটি অ্যাডমিন কর্তৃক ব্যান করা হয়েছে!")
-        except Exception:
-            pass
+        await update.message.reply_text("✅ ইউজার ব্যান করা হয়েছে।")
     except ValueError:
-        await update.message.reply_text("⚠️ সঠিক আইডি দিন (শুধু সংখ্যা):")
         return ASK_ADMIN_BAN_USER
     return ConversationHandler.END
 
 
-# --- নতুন ফিচার: ইউজার আনব্যান ---
 async def adm_unban_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
-    await update.callback_query.edit_message_text("✅ যে ইউজারকে *আনব্যান* করতে চান তার User ID পাঠান:")
+    await update.callback_query.edit_message_text("✅ আনব্যান করার জন্য User ID পাঠান:")
     return ASK_ADMIN_UNBAN_USER
 
 async def adm_unban_user_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         target_id = int(update.message.text.strip())
         if not db.get_user(target_id):
-            await update.message.reply_text("❌ এই আইডি দিয়ে কোনো ইউজার পাওয়া যায়নি।")
+            await update.message.reply_text("❌ ইউজার পাওয়া যায়নি।")
             return ConversationHandler.END
-            
         db.unban_user(target_id)
-        await update.message.reply_text(f"✅ ইউজার `{target_id}` কে সফলভাবে আনব্যান করা হয়েছে।")
-        try:
-            await context.bot.send_message(target_id, "🎉 আপনার অ্যাকাউন্টটি আনব্যান করা হয়েছে। এখন আপনি বটের সব কাজ করতে পারবেন।")
-        except Exception:
-            pass
+        await update.message.reply_text("✅ ইউজার আনব্যান করা হয়েছে।")
     except ValueError:
-        await update.message.reply_text("⚠️ সঠিক আইডি দিন (শুধু সংখ্যা):")
         return ASK_ADMIN_UNBAN_USER
     return ConversationHandler.END
 
 
 async def adm_broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
-    await update.callback_query.edit_message_text("📢 সব ইউজারের কাছে যে নোটিফিকেশনটি পাঠাতে চান তা লিখে পাঠান:")
+    await update.callback_query.edit_message_text("📢 নোটিফিকেশন মেসেজটি লিখুন:")
     return ASK_ADMIN_BROADCAST
 
 
 async def adm_broadcast_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg_text = update.message.text
-    try:
-        users = db.get_all_users()
-    except AttributeError:
-        await update.message.reply_text("⚠️ ডাটাবেজে সমস্যা হয়েছে।")
-        return ConversationHandler.END
-
+    users = db.get_all_users()
     if not users:
-        await update.message.reply_text("❌ বটের কোনো ইউজার খুঁজে পাওয়া যায়নি।")
+        await update.message.reply_text("❌ কোনো ইউজার নেই।")
         return ConversationHandler.END
 
     sent_count = 0
-    await update.message.reply_text("⚡ ব্রডকাস্ট পাঠানো শুরু হয়েছে... দয়া করে অপেক্ষা করুন।")
-    
     for u in users:
         try:
-            await context.bot.send_message(chat_id=u['user_id'], text=f"📢 *গুরুত্বপূর্ণ নোটিশ:*\n\n{msg_text}", parse_mode="Markdown")
+            await context.bot.send_message(chat_id=u['user_id'], text=f"📢 *নোটিশ:*\n\n{msg_text}", parse_mode="Markdown")
             sent_count += 1
         except Exception:
             continue
-            
-    await update.message.reply_text(f"✅ ব্রডকাস্ট সম্পন্ন! মোট {sent_count} জন ইউজারকে মেসেজ পাঠানো হয়েছে।")
+    await update.message.reply_text(f"✅ মোট {sent_count} জনকে পাঠানো হয়েছে।")
     return ConversationHandler.END
 
 
 async def adm_add_task_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
-    instructions = (
-        "🎯 *নতুন টাস্ক যোগ করার নিয়ম*\n\n"
-        "নিচের ফরম্যাটে তথ্যটি একসাথে লিখে পাঠান:\n\n"
-        "`টাইটেল || কাজের বিবরণ || টাকা || লিংক` \n\n"
-        "*উদাহরণ:*\n"
-        "`ইউটিউব সাবস্ক্রাইব || চ্যানেলটি সাবস্ক্রাইব করে স্ক্রিনশট দিন || 3.5 || https://youtube.com/...`"
-    )
-    await update.callback_query.edit_message_text(instructions, parse_mode="Markdown")
+    await update.callback_query.edit_message_text("ফরম্যাট: `টাইটেল || বিবরণ || টাকা || লিংক`")
     return ASK_ADMIN_ADD_TASK_DATA
 
 
 async def adm_add_task_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    raw_text = update.message.text
     try:
-        parts = [p.strip() for p in raw_text.split("||")]
-        if len(parts) < 4:
-            raise ValueError
-        
-        title = parts[0]
-        desc = parts[1]
-        reward = float(parts[2])
-        url = parts[3]
-        
-        db.add_new_task(title, desc, reward, url)
-        await update.message.reply_text(f"✅ *নতুন টাস্ক সফলভাবে যুক্ত হয়েছে!*\n\n📌 টাইটেল: {title}\n💰 রিওয়ার্ড: {reward} টাকা")
-    except ValueError:
-        await update.message.reply_text("⚠️ ফরম্যাট ভুল হয়েছে! আবার চেষ্টা করুন।\nফরম্যাট: `টাইটেল || বিবরণ || টাকা || লিংক`")
-        return ASK_ADMIN_ADD_TASK_DATA
+        parts = [p.strip() for p in update.message.text.split("||")]
+        db.add_new_task(parts[0], parts[1], float(parts[2]), parts[3])
+        await update.message.reply_text("✅ টাস্ক যুক্ত হয়েছে।")
+    except Exception:
+        await update.message.reply_text("⚠️ ভুল ফরম্যাট।")
     return ConversationHandler.END
 
 
 async def adm_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
-    await update.callback_query.edit_message_text("🔒 এডমিন প্যানেল বন্ধ করা হয়েছে।")
+    await update.callback_query.edit_message_text("🔒 প্যানেল বন্ধ।")
     return ConversationHandler.END
 
 
@@ -872,6 +806,7 @@ def main():
             ],
             ASK_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, withdraw_number_received)],
             ASK_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, withdraw_amount_received)],
+            ASK_WD_PHOTO: [MessageHandler(filters.PHOTO, withdraw_photo_received)],
         },
         fallbacks=[CallbackQueryHandler(withdraw_cancel, pattern="^wd_cancel$")],
         per_message=False,
@@ -905,10 +840,7 @@ def main():
             ASK_ADMIN_BROADCAST: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_broadcast_received)],
             ASK_ADMIN_ADD_TASK_DATA: [MessageHandler(filters.TEXT & ~filters.COMMAND, adm_add_task_received)],
         },
-        fallbacks=[
-            CallbackQueryHandler(adm_close, pattern="^adm_close$"),
-            CommandHandler("admin", admin_menu)
-        ],
+        fallbacks=[CallbackQueryHandler(adm_close, pattern="^adm_close$"), CommandHandler("admin", admin_menu)],
         per_message=False,
     )
 
@@ -932,7 +864,6 @@ def main():
 
     print("✅ বট চালু হয়েছে...")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
