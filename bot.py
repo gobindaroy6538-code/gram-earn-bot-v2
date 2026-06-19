@@ -280,7 +280,6 @@ async def admin_handle_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    # চ্যানেল বা গ্রুপে যে কেউ বাটন চাপলে তার আইডি যদি ADMIN_ID না হয় তবে রেসপন্স করবে না
     if query.from_user.id != ADMIN_ID:
         await query.answer("⛔ আপনি এই বটের মূল এডমিন নন!", show_alert=True)
         return
@@ -432,28 +431,29 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-    # 🛠️ এপ্রুভ ও রিজেক্ট বাটন (চ্যানেল থেকে কন্ট্রোল করার জন্য)
-    admin_keyboard = [[
+    # 🛠️ বাটন তৈরি করা (চ্যানেলে বাটন রিফ্রেশ ব্লক এড়ানোর জন্য বিশেষ মেথড)
+    admin_keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ এপ্রুভ", callback_data=f"wd_approve_{wd_id}"),
         InlineKeyboardButton("❌ রিজেক্ট", callback_data=f"wd_reject_{wd_id}"),
-    ]]
+    ]])
 
-    # 📢 সরাসরি আপনার নির্দিষ্ট চ্যানেলে বিস্তারিত উইথড্র রিকোয়েস্ট পাঠানো হচ্ছে
+    channel_text = (
+        f"🔔 *নতুন উইথড্র রিকোয়েস্ট* #{wd_id}\n\n"
+        f"👤 ইউজার: {update.effective_user.first_name} (@{update.effective_user.username or 'নাই'})\n"
+        f"🆔 ID: `{update.effective_user.id}`\n"
+        f"💵 পরিমাণ: {amount:.2f} টাকা\n"
+        f"📱 মেথড: {method}\n"
+        f"🔢 নাম্বার: {number}\n\n"
+        f"🤖 Bot: @{(await context.bot.get_me()).username}"
+    )
+
+    # 📢 অ্যাপ্লিকেশনকে দিয়ে (বট অবজেক্ট সরাসরি ব্যবহার করে) চ্যানেলে মেসেজ পাঠানো হচ্ছে
     try:
-        channel_text = (
-            f"🔔 *নতুন উইথড্র রিকোয়েস্ট* #{wd_id}\n\n"
-            f"👤 ইউজার: {update.effective_user.first_name} (@{update.effective_user.username or 'নাই'})\n"
-            f"🆔 ID: `{update.effective_user.id}`\n"
-            f"💵 পরিমাণ: {amount:.2f} টাকা\n"
-            f"📱 মেথড: {method}\n"
-            f"🔢 নাম্বার: {number}\n\n"
-            f"🤖 Bot: @{(await context.bot.get_me()).username}"
-        )
         await context.bot.send_message(
             chat_id=CHANNEL_ID, 
             text=channel_text, 
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(admin_keyboard)
+            reply_markup=admin_keyboard
         )
     except Exception as e:
         logging.error(f"Channel withdraw notify failed: {e}")
@@ -501,7 +501,7 @@ async def admin_handle_withdrawal(update: Update, context: ContextTypes.DEFAULT_
         db.reject_withdrawal(wd_id)
         status_text = "❌ *রিজেক্ট করা হয়েছে (টাকা ব্যালেন্সে ফেরত)*"
         user_msg = (
-            f"❌ *আপনার উইথড্র রিকোয়েস্ট রিজেক্ট হয়েছে।*\n\n"
+            f"❌ *আপনার উইথড্র রিকোয়েস্ট রিজেক্ট হয়েছে。*\n\n"
             f"💵 {wd['amount']:.2f} টাকা আপনার ব্যালেন্সে ফেরত দেওয়া হয়েছে।"
         )
 
@@ -558,7 +558,6 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_handle_task, pattern="^tk_(approve|reject)_"))
     app.add_handler(CallbackQueryHandler(admin_handle_withdrawal, pattern="^wd_(approve|reject)_"))
 
-    # 📢 চ্যানেলে নতুন কাজ পোস্ট রিড করার হ্যান্ডলার
     app.add_handler(MessageHandler(filters.ChatType.CHANNEL & filters.TEXT, channel_task_adder))
 
     print("✅ বট চালু হয়েছে...")
