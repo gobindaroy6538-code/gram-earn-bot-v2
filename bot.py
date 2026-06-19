@@ -8,6 +8,7 @@ logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 REFERRAL_BONUS = 5
+DAILY_BONUS = 2
 
 db = Database()
 
@@ -45,6 +46,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("💼 আমার ব্যালেন্স", callback_data="balance"),
          InlineKeyboardButton("👥 রেফার করুন", callback_data="referral")],
+        [InlineKeyboardButton("🎁 ডেইলি বোনাস", callback_data="daily_bonus")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -91,12 +93,43 @@ async def show_referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
+async def daily_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    success, info = db.claim_daily_bonus(user_id, DAILY_BONUS)
+
+    if success:
+        text = (
+            f"🎁 *ডেইলি বোনাস পেয়েছেন!*\n\n"
+            f"+{DAILY_BONUS} টাকা যুক্ত হয়েছে।\n"
+            f"💰 নতুন ব্যালেন্স: *{info:.2f} টাকা*\n\n"
+            f"আবার 24 ঘণ্টা পর ক্লেইম করতে পারবেন।"
+        )
+    else:
+        if info is None:
+            text = "⚠️ আপনার অ্যাকাউন্ট খুঁজে পাওয়া যায়নি। /start চাপুন।"
+        else:
+            total_seconds = int(info.total_seconds())
+            hours, remainder = divmod(total_seconds, 3600)
+            minutes, _ = divmod(remainder, 60)
+            text = (
+                f"⏳ *এখনও বোনাস ক্লেইম করার সময় হয়নি!*\n\n"
+                f"আবার ক্লেইম করতে পারবেন: *{hours} ঘণ্টা {minutes} মিনিট* পর।"
+            )
+
+    keyboard = [[InlineKeyboardButton("🏠 মেনু", callback_data="menu")]]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(show_main_menu, pattern="^menu$"))
     app.add_handler(CallbackQueryHandler(show_balance, pattern="^balance$"))
     app.add_handler(CallbackQueryHandler(show_referral, pattern="^referral$"))
+    app.add_handler(CallbackQueryHandler(daily_bonus, pattern="^daily_bonus$"))
     print("✅ বট চালু হয়েছে...")
     app.run_polling()
 
