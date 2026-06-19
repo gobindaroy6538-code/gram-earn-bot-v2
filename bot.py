@@ -7,6 +7,7 @@ from telegram.ext import (
 )
 from database import Database
 
+# এরর লগ দেখার জন্য সেটিংস অন রাখা হলো
 logging.basicConfig(level=logging.INFO)
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -16,9 +17,9 @@ DAILY_BONUS = 2
 MIN_WITHDRAW = 20
 ADMIN_ID = 8012544346
 
-# 📢 চ্যানেল এবং গ্রুপ আইডি সেটআপ
-CHANNEL_ID = -1004375418813       # টাস্ক রিলেটেড কাজের চ্যানেল
-WITHDRAW_LOG_ID = -5398251157  # 👈 এখানে আপনার নতুন উইথড্র গ্রুপ বা চ্যানেলের আইডি দিন
+# 📢 আপনার নতুন আইডি এবং চ্যানেল আইডি এখানে ফিক্সড করে দেওয়া হলো
+CHANNEL_ID = -1004375418813       
+WITHDRAW_LOG_ID = -1003857055637  # 👈 আপনার নতুন উইথড্র গ্রুপ/চ্যানেল আইডি
 
 WITHDRAW_METHODS = ["bKash", "Nagad", "Rocket"]
 
@@ -121,7 +122,7 @@ async def daily_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if success:
         text = (
             f"🎁 *ডেইলি বোনাস পেয়েছেন!*\n\n"
-            f"+{DAILY_BONUS} টাকাযুক্ত হয়েছে।\n"
+            f"+{DAILY_BONUS} টাকা যুক্ত হয়েছে।\n"
             f"💰 নতুন ব্যালেন্স: *{info:.2f} টাকা*\n\n"
             f"আবার 24 ঘণ্টা পর ক্লেইম করতে পারবেন।"
         )
@@ -406,7 +407,15 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
     method = context.user_data.get("wd_method")
     number = context.user_data.get("wd_number")
 
-    success, reason, wd_id = db.request_withdrawal(user_id, amount, method, number, MIN_WITHDRAW)
+    # ডাটাবেজ রিটার্ন হ্যান্ডল করা
+    db_res = db.request_withdrawal(user_id, amount, method, number, MIN_WITHDRAW)
+    
+    # ব্যাকওয়ার্ড কম্প্যাটিবিলিটির জন্য ডাটাবেজের রিটার্ন ভ্যালুর সাইজ চেক করা
+    if isinstance(db_res, tuple) and len(db_res) == 3:
+        success, reason, wd_id = db_res
+    else:
+        success, reason = db_res[0], db_res[1]
+        wd_id = 1 # ডাটাবেজে wd_id রিটার্ন না থাকলে ডিফল্ট আইডি সেট
 
     if not success:
         messages = {
@@ -434,7 +443,7 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-    # 🛠️ এডমিন বাটন তৈরি (যা আপনার নতুন গ্রুপ বা চ্যানেলে যাবে)
+    # 🛠️ এপ্রুভ ও রিজেক্ট বাটন লেআউট
     admin_keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ এপ্রুভ", callback_data=f"wd_approve_{wd_id}"),
         InlineKeyboardButton("❌ রিজেক্ট", callback_data=f"wd_reject_{wd_id}"),
@@ -450,7 +459,7 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
         f"🤖 Bot: @{(await context.bot.get_me()).username}"
     )
 
-    # 📢 উইথড্র মেসেজটি সরাসরি আপনার নির্দিষ্ট উইথড্র চ্যানেলে পাঠানো হচ্ছে
+    # 📢 উইথড্র মেসেজ সরাসরি নির্দিষ্ট নতুন গ্রুপ আইডিতে পাঠানো হচ্ছে
     try:
         await context.bot.send_message(
             chat_id=WITHDRAW_LOG_ID, 
@@ -459,7 +468,7 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
             reply_markup=admin_keyboard
         )
     except Exception as e:
-        logging.error(f"New withdrawal group/channel notify failed: {e}")
+        logging.error(f"❌ উইথড্র লগ গ্রুপে মেসেজ পাঠানো ব্যর্থ হয়েছে। কারণ: {e}")
 
     context.user_data.clear()
     return ConversationHandler.END
@@ -478,8 +487,9 @@ async def admin_handle_withdrawal(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
 
+    # মূল এডমিন আইডি ভেরিফিকেশন
     if query.from_user.id != ADMIN_ID:
-        await query.answer("⛔ আপনি এডমিন নন।", show_alert=True)
+        await query.answer("⛔ আপনি এই বটের মূল এডমিন নন!", show_alert=True)
         return
 
     is_approve = query.data.startswith("wd_approve_")
