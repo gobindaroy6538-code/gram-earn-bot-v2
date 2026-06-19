@@ -26,6 +26,17 @@ class Database:
                     joined_date TEXT,
                     last_bonus  TEXT
                 );
+
+                CREATE TABLE IF NOT EXISTS withdrawals (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id      INTEGER,
+                    amount       REAL,
+                    method       TEXT,
+                    account_no   TEXT,
+                    status       TEXT DEFAULT 'pending',
+                    requested_at TEXT,
+                    handled_at   TEXT
+                );
             """)
             # যদি পুরনো DB-তে last_bonus কলাম না থাকে, যুক্ত করে দেয়
             cols = [row["name"] for row in conn.execute("PRAGMA table_info(users)")]
@@ -86,3 +97,90 @@ class Database:
                 "SELECT balance FROM users WHERE user_id=?", (user_id,)
             ).fetchone()["balance"]
             return True, new_balance
+
+    # ---------------- Withdrawal ----------------
+
+    def has_pending_withdrawal(self, user_id):
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT id FROM withdrawals WHERE user_id=? AND status='pending'", (user_id,)
+            ).fetchone()
+            return row is not None
+
+    def request_withdrawal(self, user_id, amount, method, account_no, min_amount):
+        """
+        উইথড্র রিকোয়েস্ট তৈরি করে। ব্যালেন্স যাচাই করে সাথে সাথে আটকে রাখে (deduct করে)
+        যাতে ইউজার একসাথে একাধিক রিকোয়েস্ট করে ব্যালেন্সের বেশি তুলে নিতে না পারে।
+
+        Returns: (success: bool, message: str, withdrawal_id or None)
+        """
+        with self._conn() as conn:
+            user = conn.execute("SELECT balance FROM users WHERE user_id=?", (user_id,)).fetchone()
+            if user is None:
+                return False, "account_not_found", None
+
+            if self.has_pending_withdrawal(user_id):
+                return False, "already_pending", None
+
+            if amount < min_amount:
+                return False, "below_minimum", None
+
+            if user["balance"] < amount:
+                return False, "insufficient_balance", None
+
+            # ব্যালেন্স থেকে কেটে নেয়া (reject হলে ফেরত দেওয়া হবে)
+            conn.execute("UPDATE users SET balance = balance - ? WHERE user_id=?", (amount, user_id))
+            cur = conn.execute(
+                "INSERT INTO withdrawals (user_id, amount, method, account_no, status, requested_at) "
+                "VALUES (?,?,?,?, 'pending', ?)",
+                (user_id, amount, method, account_no, datetime.now().isoformat())
+            )
+            return True, "ok", cur.lastrowid
+
+    def get_withdrawal(self, withdrawal_id):
+        with self._conn() as conn:
+            row = conn.execute("SELECT * FROM withdrawals WHERE id=?", (withdrawal_id,)).fetchone()
+            return dict(row) if row else None
+
+    def get_pending_withdrawals(self):
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM withdrawals WHERE status='pending' ORDER BY requested_at ASC"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def approve_withdrawal(self, withdrawal_id):
+        """এডমিন এপ্রুভ করলে স্ট্যাটাস আপডেট হয় (ব্যালেন্স আগেই কাটা হয়েছিল)।"""
+        with self._conn() as conn:
+            row = conn.execute("SELECT status FROM withdrawals WHERE id=?", (withdrawal_id,)).fetchone()
+            if row is None or row["status"] != "pending":
+                return False
+            conn.execute(
+                "UPDATE withdrawals SET status='approved', handled_at=? WHERE id=?",
+                (datetime.now().isoformat(), withdrawal_id)
+            )
+            return True
+
+    def reject_withdrawal(self, withdrawal_id):
+        """এডমিন রিজেক্ট করলে টাকা ইউজারের ব্যালেন্সে ফেরত যায়।"""
+        with self._conn() as conn:
+            row = conn.execute("SELECT * FROM withdrawals WHERE id=?", (withdrawal_id,)).fetchone()
+            if row is None or row["status"] != "pending":
+                return False
+            conn.execute(
+                "UPDATE users SET balance = balance + ? WHERE user_id=?",
+                (row["amount"], row["user_id"])
+            )
+            conn.execute(
+                "UPDATE withdrawals SET status='rejected', handled_at=? WHERE id=?",
+                (datetime.now().isoformat(), withdrawal_id)
+            )
+            return True
+
+    def get_user_withdrawals(self, user_id, limit=5):
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM withdrawals WHERE user_id=? ORDER BY requested_at DESC LIMIT ?",
+                (user_id, limit)
+            ).fetchall()
+            return [dict(r) for r in rows]
