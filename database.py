@@ -1,5 +1,7 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
+
+BONUS_COOLDOWN_HOURS = 24
 
 
 class Database:
@@ -21,9 +23,14 @@ class Database:
                     username    TEXT,
                     balance     REAL DEFAULT 0,
                     referrer_id INTEGER,
-                    joined_date TEXT
+                    joined_date TEXT,
+                    last_bonus  TEXT
                 );
             """)
+            # যদি পুরনো DB-তে last_bonus কলাম না থাকে, যুক্ত করে দেয়
+            cols = [row["name"] for row in conn.execute("PRAGMA table_info(users)")]
+            if "last_bonus" not in cols:
+                conn.execute("ALTER TABLE users ADD COLUMN last_bonus TEXT")
 
     def register_user(self, user_id, name, username, referrer_id=None):
         with self._conn() as conn:
@@ -49,3 +56,33 @@ class Database:
         with self._conn() as conn:
             row = conn.execute("SELECT COUNT(*) as cnt FROM users WHERE referrer_id=?", (user_id,)).fetchone()
             return row["cnt"]
+
+    def claim_daily_bonus(self, user_id, amount):
+        """
+        Daily bonus claim করার চেষ্টা করে।
+        Returns: (success: bool, info)
+            - success=True হলে info = নতুন balance (float)
+            - success=False হলে info = পরবর্তী claim পর্যন্ত বাকি সময় (timedelta)
+        """
+        with self._conn() as conn:
+            row = conn.execute("SELECT last_bonus FROM users WHERE user_id=?", (user_id,)).fetchone()
+            if row is None:
+                return False, None
+
+            now = datetime.now()
+            if row["last_bonus"]:
+                last_claim = datetime.fromisoformat(row["last_bonus"])
+                elapsed = now - last_claim
+                cooldown = timedelta(hours=BONUS_COOLDOWN_HOURS)
+                if elapsed < cooldown:
+                    remaining = cooldown - elapsed
+                    return False, remaining
+
+            conn.execute(
+                "UPDATE users SET balance = balance + ?, last_bonus = ? WHERE user_id=?",
+                (amount, now.isoformat(), user_id)
+            )
+            new_balance = conn.execute(
+                "SELECT balance FROM users WHERE user_id=?", (user_id,)
+            ).fetchone()["balance"]
+            return True, new_balance
