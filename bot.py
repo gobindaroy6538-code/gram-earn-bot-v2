@@ -15,7 +15,10 @@ DAILY_BONUS = 2
 
 MIN_WITHDRAW = 20
 ADMIN_ID = 8012544346
-CHANNEL_ID = -1004375418813  # 📢 আপনার দেওয়া চ্যানেল আইডি
+
+# 📢 চ্যানেল এবং গ্রুপ আইডি সেটআপ
+CHANNEL_ID = -1004375418813       # টাস্ক রিলেটেড কাজের চ্যানেল
+WITHDRAW_LOG_ID = -100XXXXXXXXXX  # 👈 এখানে আপনার নতুন উইথড্র গ্রুপ বা চ্যানেলের আইডি দিন
 
 WITHDRAW_METHODS = ["bKash", "Nagad", "Rocket"]
 
@@ -118,7 +121,7 @@ async def daily_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if success:
         text = (
             f"🎁 *ডেইলি বোনাস পেয়েছেন!*\n\n"
-            f"+{DAILY_BONUS} টাকা যুক্ত হয়েছে।\n"
+            f"+{DAILY_BONUS} টাকাযুক্ত হয়েছে।\n"
             f"💰 নতুন ব্যালেন্স: *{info:.2f} টাকা*\n\n"
             f"আবার 24 ঘণ্টা পর ক্লেইম করতে পারবেন।"
         )
@@ -431,7 +434,7 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-    # 🛠️ বাটন তৈরি করা (চ্যানেলে বাটন রিফ্রেশ ব্লক এড়ানোর জন্য বিশেষ মেথড)
+    # 🛠️ এডমিন বাটন তৈরি (যা আপনার নতুন গ্রুপ বা চ্যানেলে যাবে)
     admin_keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ এপ্রুভ", callback_data=f"wd_approve_{wd_id}"),
         InlineKeyboardButton("❌ রিজেক্ট", callback_data=f"wd_reject_{wd_id}"),
@@ -447,16 +450,16 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
         f"🤖 Bot: @{(await context.bot.get_me()).username}"
     )
 
-    # 📢 অ্যাপ্লিকেশনকে দিয়ে (বট অবজেক্ট সরাসরি ব্যবহার করে) চ্যানেলে মেসেজ পাঠানো হচ্ছে
+    # 📢 উইথড্র মেসেজটি সরাসরি আপনার নির্দিষ্ট উইথড্র চ্যানেলে পাঠানো হচ্ছে
     try:
         await context.bot.send_message(
-            chat_id=CHANNEL_ID, 
+            chat_id=WITHDRAW_LOG_ID, 
             text=channel_text, 
             parse_mode="Markdown",
             reply_markup=admin_keyboard
         )
     except Exception as e:
-        logging.error(f"Channel withdraw notify failed: {e}")
+        logging.error(f"New withdrawal group/channel notify failed: {e}")
 
     context.user_data.clear()
     return ConversationHandler.END
@@ -501,7 +504,7 @@ async def admin_handle_withdrawal(update: Update, context: ContextTypes.DEFAULT_
         db.reject_withdrawal(wd_id)
         status_text = "❌ *রিজেক্ট করা হয়েছে (টাকা ব্যালেন্সে ফেরত)*"
         user_msg = (
-            f"❌ *আপনার উইথড্র রিকোয়েস্ট রিজেক্ট হয়েছে。*\n\n"
+            f"❌ *আপনার উইথড্র রিকোয়েস্ট রিজেক্ট হয়েছে।*\n\n"
             f"💵 {wd['amount']:.2f} টাকা আপনার ব্যালেন্সে ফেরত দেওয়া হয়েছে।"
         )
 
