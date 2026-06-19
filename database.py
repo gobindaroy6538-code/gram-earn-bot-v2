@@ -347,10 +347,9 @@ class Database:
         conn.close()
 
 
-    # --- NEW FEATURE: LEADERBOARD SYSTEM ---
+    # --- LEADERBOARD SYSTEM ---
     
     def get_top_earners(self, limit=10):
-        """সর্বোচ্চ ব্যালেন্স থাকা টপ ইউজারদের তালিকা নিয়ে আসবে"""
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute(
@@ -362,7 +361,6 @@ class Database:
         return [{"name": r[0], "balance": r[1]} for r in result]
 
     def get_top_referrers(self, limit=10):
-        """সবচেয়ে বেশি রেফার করা টop ইউজারদের তালিকা নিয়ে আসবে"""
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute(
@@ -380,3 +378,35 @@ class Database:
         result = cursor.fetchall()
         conn.close()
         return [{"name": r[0], "ref_count": r[1]} for r in result]
+
+
+    # --- NEW FEATURE: SYSTEM STATISTICS ---
+    
+    def get_system_stats(self):
+        """বটের সামগ্রিক পরিসংখ্যান (ইউজার, টাস্ক ও উইথড্র) গণনা করে নিয়ে আসবে"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # মোট ইউজার সংখ্যা
+        cursor.execute("SELECT COUNT(user_id) FROM users")
+        total_users = cursor.fetchone()[0]
+        
+        # মোট ব্যানড ইউজার সংখ্যা
+        cursor.execute("SELECT COUNT(user_id) FROM users WHERE is_banned = 1")
+        banned_users = cursor.fetchone()[0]
+        
+        # মোট টাস্ক সংখ্যা
+        cursor.execute("SELECT COUNT(task_id) FROM tasks")
+        total_tasks = cursor.fetchone()[0]
+        
+        # মোট পেন্ডিং উইথড্র রিকোয়েস্ট সংখ্যা
+        cursor.execute("SELECT COUNT(wd_id) FROM withdrawals WHERE status = 'pending'")
+        pending_withdraws = cursor.fetchone()[0]
+        
+        conn.close()
+        return {
+            "total_users": total_users,
+            "banned_users": banned_users,
+            "total_tasks": total_tasks,
+            "pending_withdraws": pending_withdraws
+        }
