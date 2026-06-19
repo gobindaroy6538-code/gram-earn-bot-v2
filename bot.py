@@ -13,8 +13,11 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 REFERRAL_BONUS = 5
 DAILY_BONUS = 2
 
-MIN_WITHDRAW = 2
+MIN_WITHDRAW = 20
 ADMIN_ID = 8012544346
+
+# 📢 এখানে আপনার চ্যানেলের আইডি দিন (যেমন: "@MyChannelUsername" অথবা ID "-1004375418813")
+CHANNEL_ID = "-1004375418813" 
 
 WITHDRAW_METHODS = ["bKash", "Nagad", "Rocket"]
 
@@ -257,8 +260,28 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-    # অ্যাডমিনকে নোটিফাই করা
+    # 📢 চ্যানেলে নতুন উইথড্র রিকোয়েস্টের নোটিফিকেশন পাঠানো (যোগ করা হয়েছে)
     user = update.effective_user
+    try:
+        channel_text = (
+            f"🔔 *নতুন উইথড্র রিকোয়েস্ট!*\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👤 ইউজার: {user.first_name}\n"
+            f"💵 পরিমাণ: *{amount:.2f} টাকা*\n"
+            f"📱 মেথড: *{method}*\n"
+            f"⏰ স্ট্যাটাস: ⏳ Pending (পেন্ডিং)\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🤖 Bot: @{(await context.bot.get_me()).username}"
+        )
+        await context.bot.send_message(
+            chat_id=CHANNEL_ID,
+            text=channel_text,
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logging.error(f"Channel notify failed: {e}")
+
+    # অ্যাডমিনকে নোটিফাই করা
     admin_keyboard = [[
         InlineKeyboardButton("✅ এপ্রুভ", callback_data=f"wd_approve_{wd_id}"),
         InlineKeyboardButton("❌ রিজেক্ট", callback_data=f"wd_reject_{wd_id}"),
