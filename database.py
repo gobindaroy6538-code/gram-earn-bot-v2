@@ -1,7 +1,6 @@
 import sqlite3
 from datetime import datetime, timedelta
 
-
 class Database:
     def __init__(self, db_name="bot_database.db"):
         self.conn = sqlite3.connect(db_name, check_same_thread=False)
@@ -28,6 +27,7 @@ class Database:
             amount REAL,
             method TEXT,
             account_no TEXT,
+            photo_id TEXT,
             status TEXT DEFAULT 'pending'
         )
         """)
@@ -52,11 +52,16 @@ class Database:
         """)
         self.conn.commit()
 
-        # সেফটি চেক: যদি আগে থেকে ডাটাবেজ ফাইল তৈরি থাকে, তবে যেন কলাম মিসিং এরর না আসে
         try:
             cursor.execute("SELECT is_banned FROM users LIMIT 1")
         except sqlite3.OperationalError:
             cursor.execute("ALTER TABLE users ADD COLUMN is_banned INTEGER DEFAULT 0")
+            self.conn.commit()
+
+        try:
+            cursor.execute("SELECT photo_id FROM withdrawals LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE withdrawals ADD COLUMN photo_id TEXT")
             self.conn.commit()
 
     # ---------------- USER ----------------
@@ -89,7 +94,6 @@ class Database:
         return None
 
     def get_all_users(self):
-        """👑 অ্যাডমিন ব্রডকাস্টের জন্য সব ইউজারের আইডি পাওয়ার মেথড"""
         cursor = self.conn.cursor()
         cursor.execute("SELECT user_id FROM users")
         return [{"user_id": r[0]} for r in cursor.fetchall()]
@@ -125,26 +129,23 @@ class Database:
 
     # ---------------- BAN / UNBAN SYSTEM ----------------
     def is_user_banned(self, user_id):
-        """ইউজার ব্যান কিনা চেক করে"""
         cursor = self.conn.cursor()
         cursor.execute("SELECT is_banned FROM users WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
         return row[0] == 1 if row else False
 
     def ban_user(self, user_id):
-        """ইউজারকে ব্যান করে"""
         cursor = self.conn.cursor()
         cursor.execute("UPDATE users SET is_banned = 1 WHERE user_id = ?", (user_id,))
         self.conn.commit()
 
     def unban_user(self, user_id):
-        """ইউজারকে আনব্যান করে"""
         cursor = self.conn.cursor()
         cursor.execute("UPDATE users SET is_banned = 0 WHERE user_id = ?", (user_id,))
         self.conn.commit()
 
     # ---------------- WITHDRAW ----------------
-    def request_withdrawal(self, user_id, amount, method, account_no, min_withdraw):
+    def request_withdrawal(self, user_id, amount, method, account_no, photo_id, min_withdraw):
         user = self.get_user(user_id)
         if not user:
             return False, "account_not_found", None
@@ -158,8 +159,8 @@ class Database:
             cursor = self.conn.cursor()
             cursor.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, user_id))
             cursor.execute(
-                "INSERT INTO withdrawals (user_id, amount, method, account_no, status) VALUES (?, ?, ?, ?, 'pending')",
-                (user_id, amount, method, account_no)
+                "INSERT INTO withdrawals (user_id, amount, method, account_no, photo_id, status) VALUES (?, ?, ?, ?, ?, 'pending')",
+                (user_id, amount, method, account_no, photo_id)
             )
             self.conn.commit()
             return True, "success", cursor.lastrowid
@@ -175,10 +176,10 @@ class Database:
 
     def get_withdrawal(self, wd_id):
         cursor = self.conn.cursor()
-        cursor.execute("SELECT user_id, amount, method, account_no, status FROM withdrawals WHERE id = ?", (wd_id,))
+        cursor.execute("SELECT user_id, amount, method, account_no, status, photo_id FROM withdrawals WHERE id = ?", (wd_id,))
         row = cursor.fetchone()
         if row:
-            return {"user_id": row[0], "amount": row[1], "method": row[2], "account_no": row[3], "status": row[4]}
+            return {"user_id": row[0], "amount": row[1], "method": row[2], "account_no": row[3], "status": row[4], "photo_id": row[5]}
         return None
 
     def approve_withdrawal(self, wd_id):
