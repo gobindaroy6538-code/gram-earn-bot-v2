@@ -144,6 +144,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🎁 DAILY BONUS", callback_data="daily_bonus"),
          InlineKeyboardButton("💵 উইথড্র", callback_data="withdraw_start")],
         [InlineKeyboardButton("🎯 টাস্ক করুন", callback_data="task_menu")],
+        [InlineKeyboardButton("🏆 লিডারবোর্ড", callback_data="leaderboard_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -414,7 +415,7 @@ async def admin_handle_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_caption(caption="⚠️ ইতিমধ্যে অ্যাকশন নেওয়া হয়েছে।")
 
 
-# ---------------- WITHDRAW SYSTEM (UPDATED) ----------------
+# ---------------- WITHDRAW SYSTEM ----------------
 
 async def withdraw_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -503,7 +504,6 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
     method = context.user_data.get("wd_method")
     number = context.user_data.get("wd_number")
 
-    # ডাটাবেজে রিকোয়েস্ট সাবমিট করা (ফটো ছাড়াই ব্যাকএন্ড সেভ হবে)
     success, reason, wd_id = db.request_withdrawal(user_id, amount, method, number, "no_photo", MIN_WITHDRAW)
 
     if not success:
@@ -517,7 +517,6 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
         context.user_data.clear()
         return ConversationHandler.END
 
-    # ইউজারকে পেমেন্ট গ্রুপে স্ক্রিনশট দেওয়ার মেসেজ দেখানো
     keyboard = [
         [InlineKeyboardButton("📢 পেমেন্ট গ্রুপ লিংক", url=PAYMENT_GROUP_LINK)],
         [InlineKeyboardButton("🏠 মূল মেনু", callback_data="menu")]
@@ -539,7 +538,6 @@ async def withdraw_amount_received(update: Update, context: ContextTypes.DEFAULT
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-    # এডমিন প্যানেল বা চ্যানেলে নোটিফিকেশন পাঠানো
     admin_keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ এপ্রুভ উইথড্র", callback_data=f"wd_approve_{wd_id}"),
         InlineKeyboardButton("❌ রিজেক্ট উইথড্র", callback_data=f"wd_reject_{wd_id}"),
@@ -620,6 +618,69 @@ async def admin_handle_withdrawal(update: Update, context: ContextTypes.DEFAULT_
             )
         except Exception:
             pass
+
+
+# ---------------- NEW FEATURE: LEADERBOARD SYSTEM ----------------
+
+async def leaderboard_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    text = (
+        "🏆 *Gram Earn Bot - লিডারবোর্ড*\n\n"
+        "আমাদের বটের সেরা পারফর্মারদের তালিকা দেখতে নিচের বাটনে ক্লিক করুন। "
+        "আপনিও বেশি বেশি কাজ ও রেফার করে চলে আসতে পারেন সেরা তালিকায়!"
+    )
+    keyboard = [
+        [InlineKeyboardButton("💰 টপ আর্নার্স (Top Earners)", callback_data="top_earners")],
+        [InlineKeyboardButton("👥 টপ রেফারার্স (Top Referrers)", callback_data="top_referrers")],
+        [InlineKeyboardButton("🏠 মূল মেনু", callback_data="menu")]
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+async def show_top_earners(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    top_users = db.get_top_earners(limit=10)
+    
+    text = "💰 *টপ ১০ আর্নার্স তালিকা*\n\n"
+    if not top_users:
+        text += "এখনো কোনো ডাটা উপলব্ধ নেই।"
+    else:
+        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+        for i, user in enumerate(top_users):
+            medal = medals[i] if i < len(medals) else "🔹"
+            text += f"{medal} *{user['name']}* — {user['balance']:.2f} টাকা\n"
+            
+    keyboard = [
+        [InlineKeyboardButton("🔙 পিছনে যান", callback_data="leaderboard_menu")],
+        [InlineKeyboardButton("🏠 মূল মেনু", callback_data="menu")]
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+async def show_top_referreers(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    top_ref = db.get_top_referrers(limit=10)
+    
+    text = "👥 *টপ ১০ রেফারার্স তালিকা*\n\n"
+    if not top_ref:
+        text += "এখনো কোনো ডাটা উপলব্ধ নেই।"
+    else:
+        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+        for i, user in enumerate(top_ref):
+            medal = medals[i] if i < len(medals) else "🔹"
+            text += f"{medal} *{user['name']}* — {user['ref_count']} জন সফল রেফার\n"
+            
+    keyboard = [
+        [InlineKeyboardButton("🔙 পিছনে যান", callback_data="leaderboard_menu")],
+        [InlineKeyboardButton("🏠 মূল মেনু", callback_data="menu")]
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 # ---------------- ADMIN PANEL SYSTEM ----------------
@@ -885,6 +946,12 @@ def main():
     app.add_handler(CallbackQueryHandler(view_single_task, pattern="^view_task_"))
     app.add_handler(CallbackQueryHandler(admin_handle_task, pattern="^tk_(approve|reject)_"))
     app.add_handler(CallbackQueryHandler(admin_handle_withdrawal, pattern="^wd_(approve|reject)_"))
+    
+    # Leaderboard Callbacks
+    app.add_handler(CallbackQueryHandler(leaderboard_menu, pattern="^leaderboard_menu$"))
+    app.add_handler(CallbackQueryHandler(show_top_earners, pattern="^top_earners$"))
+    app.add_handler(CallbackQueryHandler(show_top_referreers, pattern="^top_referrers$"))
+    
     app.add_handler(CallbackQueryHandler(adm_close, pattern="^adm_close$"))
 
     app.add_handler(MessageHandler(filters.ChatType.CHANNEL & filters.TEXT, channel_task_adder))
