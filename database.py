@@ -202,6 +202,27 @@ class Database:
             return {"task_id": r[0], "title": r[1], "desc": r[2], "reward": r[3], "url": r[4]}
         return None
 
+    def delete_task(self, task_id):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+        deleted = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return deleted > 0
+
+    def update_task(self, task_id, title, desc, reward, url):
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE tasks SET title = ?, desc = ?, reward = ?, url = ? WHERE task_id = ?",
+            (title, desc, reward, url, task_id)
+        )
+        updated = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return updated > 0
+
     def has_pending_task(self, user_id, task_id):
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -304,7 +325,7 @@ class Database:
             
         date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # ইউজার ব্যালেন্স ইনস্ট্যান্ট কেটে নেওয়া
+        # ইউজার ব্যালেন্স ইনস্ট্যান্ট কেটে নেওয়া
         cursor.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (amount, user_id))
         
         cursor.execute(
@@ -340,7 +361,7 @@ class Database:
         row = cursor.fetchone()
         if row and row[2] == "pending":
             user_id, amount, _ = row
-            # রিজেক্ট হলে টাকা মেইন ব্যালেন্সে ফেরত দেওয়া হচ্ছে
+            # রিজেক্ট হলে টাকা মেইন ব্যালেন্সে ফেরত দেওয়া হচ্ছে
             cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
             cursor.execute("UPDATE withdrawals SET status = 'rejected' WHERE wd_id = ?", (wd_id,))
             conn.commit()
@@ -380,10 +401,10 @@ class Database:
         return [{"name": r[0], "ref_count": r[1]} for r in result]
 
 
-    # --- NEW FEATURE: SYSTEM STATISTICS ---
+    # --- SYSTEM STATISTICS ---
     
     def get_system_stats(self):
-        """বটের সামগ্রিক পরিসংখ্যান (ইউজার, টাস্ক ও উইথড্র) গণনা করে নিয়ে আসবে"""
+        """বটের সামগ্রিক পরিসংখ্যান (ইউজার, টাস্ক ও উইথড্র) গণনা করে নিয়ে আসবে"""
         conn = self._get_connection()
         cursor = conn.cursor()
         
